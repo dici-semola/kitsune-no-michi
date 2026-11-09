@@ -1,7 +1,7 @@
 import { Inventory } from './Inventory.js';
 import { QuestLog } from './Quests.js';
 import { ABILITY_DEFS } from '../data/abilities.js';
-import { ITEMS, AMMO } from '../data/items.js';
+import { AMMO_MAX, ITEMS, AMMO } from '../data/items.js';
 import { QUESTS } from '../data/quests.js';
 import { ENEMIES } from '../data/enemies.js';
 import { BOMBS } from '../data/crafting.js';
@@ -30,10 +30,10 @@ export class GameState {
     this.bus = bus;
     this.name = 'Akane';
     this.look = { hair: 0, skin: 0, red: 0, mask: 0, gender: 0, style: 0 };
-    this.gift = 'equilibrio'; this.stamina = 100; this.guardPts = this.maxGuard; this.bombSel = null; this.recipesSeen = new Set(); this.deaths = 0; this.limbo = null; this.limboCycles = 0; this.lastLimboCfg = -1; this.deathPos = null; this.weaponMode = 'katana'; this.ammoSel = 0;
+    this.gift = 'equilibrio'; this.stamina = 100; this.guardPts = 60; this.bombSel = null; this.recipesSeen = new Set(); this.deaths = 0; this.limbo = null; this.limboCycles = 0; this.lastLimboCfg = -1; this.deathPos = null; this.weaponMode = 'katana'; this.ammoSel = 0; this.camp = null;
     this.level = 1; this.xp = 0; this.bonusHp = 0;
     this.inv = new Inventory();
-    this.hp = this.maxHp; this.ki = this.maxKi;
+    this.hp = this.maxHp; this.ki = this.maxKi; this.guardPts = this.maxGuard;
     this.flags = new Set();
     this.quests = new QuestLog();
     this.abilities = new Set();
@@ -67,7 +67,7 @@ export class GameState {
   get speedBonus() { return GIFTS[this.gift]?.spd || 0; }
   ammoReady() { return AMMO.some((a) => this.inv.has(a)); }
   cycleAmmo() { for (let i = 1; i <= AMMO.length; i++) { const n = (this.ammoSel + i) % AMMO.length; if (this.inv.has(AMMO[n])) { this.ammoSel = n; return; } } }
-  ammoName() { const t = AMMO.find((a, i) => i === this.ammoSel && this.inv.has(a)) || AMMO.find((a) => this.inv.has(a)); return t ? `${ITEMS[t].n} x${this.inv.count(t)}` : 'nessuna'; }
+  ammoName() { const t = AMMO.find((a, i) => i === this.ammoSel && this.inv.has(a)) || AMMO.find((a) => this.inv.has(a)); return t ? `${ITEMS[t].n} x${this.inv.count(t)} (${this.inv.ammoTotal()}/${AMMO_MAX})` : 'nessuna'; }
   buff(stat) { return this.buffs.filter((b) => b.stat === stat).reduce((a, b) => a + b.val, 0); }
   get atk() { return Math.round((4 + this.level * 2.2 + this.inv.bonus('atk')) * (1 + this.buff('atk'))); }
   get def() { return Math.round((this.level * 0.8 + this.inv.bonus('def')) * (1 + this.buff('def'))); }
@@ -184,20 +184,35 @@ export class GameState {
       v: 1, name: this.name, look: this.look, level: this.level, xp: this.xp, bonusHp: this.bonusHp, hp: this.hp, ki: this.ki,
       flags: [...this.flags], inv: this.inv.serialize(), quests: this.quests.serialize(), abilities: [...this.abilities],
       map: this.map, pos: this.pos, minutes: this.minutes, kills: this.kills, visited: [...this.visited], seen: [...this.seen],
-      respawn: this.respawn, playtime: this.playtime, postgame: this.postgame, gift: this.gift, secrets: this.secrets, stamina: this.stamina, guardPts: this.guardPts, bombSel: this.bombSel, recipesSeen: [...this.recipesSeen], deaths: this.deaths, limbo: this.limbo, limboCycles: this.limboCycles, lastLimboCfg: this.lastLimboCfg, deathPos: this.deathPos, weaponMode: this.weaponMode, ammoSel: this.ammoSel,
+      respawn: this.respawn, playtime: this.playtime, postgame: this.postgame, gift: this.gift, secrets: this.secrets, stamina: this.stamina, guardPts: this.guardPts, bombSel: this.bombSel, recipesSeen: [...this.recipesSeen], deaths: this.deaths, limbo: this.limbo, limboCycles: this.limboCycles, lastLimboCfg: this.lastLimboCfg, deathPos: this.deathPos, weaponMode: this.weaponMode, ammoSel: this.ammoSel, camp: this.camp,
       explored: Object.fromEntries(Object.entries(this.explored).map(([k, v]) => [k, [...v]])),
     };
+  }
+  // Valori numerici sempre finiti e nei limiti (un NaN/null salvato non deve bloccare guardia, barre o movimento)
+  sanitize() {
+    const num = (v, def, lo = -Infinity, hi = Infinity) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : def);
+    this.level = Math.round(num(this.level, 1, 1, 999)); this.xp = num(this.xp, 0, 0); this.bonusHp = num(this.bonusHp, 0, 0);
+    this.hp = num(this.hp, this.maxHp, 1, this.maxHp); this.ki = num(this.ki, this.maxKi, 0, this.maxKi);
+    this.stamina = num(this.stamina, 100, 0, this.maxStamina); this.guardPts = num(this.guardPts, this.maxGuard, 0, this.maxGuard);
+    this.minutes = num(this.minutes, 7 * 60, 0, 1440); if (!this.kills || typeof this.kills !== 'object') this.kills = {}; this.playtime = num(this.playtime, 0, 0);
+    if (!this.look || typeof this.look !== 'object') this.look = { hair: 0, skin: 0, red: 0, mask: 0, gender: 0, style: 0 };
+    if (typeof this.name !== 'string' || !this.name) this.name = 'Akane';
+    if (!this.map) this.map = 'overworld';
+    if (this.camp && !(this.camp.map && Number.isFinite(this.camp.x) && Number.isFinite(this.camp.y))) this.camp = null;
+    if (this.pos && !(Number.isFinite(this.pos.x) && Number.isFinite(this.pos.y))) this.pos = null;
+    return this;
   }
   static restore(bus, d) {
     const s = new GameState(bus);
     Object.assign(s, { name: d.name, look: d.look, level: d.level, xp: d.xp, bonusHp: d.bonusHp, hp: d.hp, ki: d.ki, map: d.map, pos: d.pos,
       minutes: d.minutes, kills: d.kills, respawn: d.respawn, playtime: d.playtime, postgame: d.postgame,
-      gift: d.gift || 'equilibrio', stamina: d.stamina ?? 100, guardPts: d.guardPts ?? 60, bombSel: d.bombSel || null, deaths: d.deaths || 0, limbo: d.limbo || null, limboCycles: d.limboCycles || 0, lastLimboCfg: d.lastLimboCfg ?? -1, deathPos: d.deathPos || null, weaponMode: d.weaponMode || 'katana', ammoSel: d.ammoSel || 0 });
+      gift: d.gift || 'equilibrio', stamina: d.stamina ?? 100, guardPts: d.guardPts ?? 60, bombSel: d.bombSel || null, deaths: d.deaths || 0, limbo: d.limbo || null, limboCycles: d.limboCycles || 0, lastLimboCfg: d.lastLimboCfg ?? -1, deathPos: d.deathPos || null, weaponMode: d.weaponMode || 'katana', ammoSel: d.ammoSel || 0, camp: d.camp || null });
     s.recipesSeen = new Set(d.recipesSeen || []);
     s.look = { gender: 0, style: 0, ...d.look }; s.secrets = d.secrets || [];
     s.flags = new Set(d.flags); s.visited = new Set(d.visited); s.seen = new Set(d.seen); s.abilities = new Set(d.abilities);
     s.explored = Object.fromEntries(Object.entries(d.explored || {}).map(([k, v]) => [k, new Set(v)]));
     s.inv.restore(d.inv); s.quests.restore(d.quests);
+    s.sanitize();
     return s;
   }
 }
@@ -217,11 +232,15 @@ export const Save = {
   any() { return SLOTS_LIST.some((s) => this.peek(s)) || this.legacy(); },
   write(state, slot = 'auto') {
     try {
+      if (!state || !state.inv || !Number.isFinite(state.level)) return false; // mai sovrascrivere un salvataggio valido con dati incompleti
       const d = JSON.stringify(state.serialize());
       const meta = { name: state.name, level: state.level, map: state.map, t: Date.now(), play: Math.floor(state.playtime), gender: state.look.gender, pct: state.completion().pct };
+      const out = JSON.stringify({ v: 2, m: meta, d, c: sum(d) });
       const prev = localStorage.getItem(PREFIX + slot);
-      if (prev && unwrap(prev)) localStorage.setItem(PREFIX + slot + '_bak', prev);
-      localStorage.setItem(PREFIX + slot, JSON.stringify({ v: 2, m: meta, d, c: sum(d) }));
+      const put = () => { if (prev && unwrap(prev)) localStorage.setItem(PREFIX + slot + '_bak', prev); localStorage.setItem(PREFIX + slot, out); };
+      try { put(); } catch (e) { localStorage.removeItem(PREFIX + slot + '_bak'); localStorage.setItem(PREFIX + slot, out); } // memoria piena: si rinuncia al backup, non al salvataggio
+      if (localStorage.getItem(PREFIX + slot) !== out) return false; // verifica di lettura
+      this.lastOk = Date.now();
       return true;
     } catch { return false; }
   },

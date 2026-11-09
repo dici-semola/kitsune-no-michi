@@ -175,4 +175,50 @@ export const WINDOW_OF = {};
   }
 }
 
+// ============================================================================================
+// Sprite ALTI (montagne a piani, alberi di silhouette diverse, monumenti verticali) e pavimentazioni varie.
+// La collisione resta sul solo tile di base (`solid`): la chioma/la cima è solo grafica (`tall` = righe di sprite sopra il tile).
+// Gli id di tile sono 8 bit (0-255): questo blocco usa 163-255.
+// ============================================================================================
+export const MTN = {}, TREESET = {};
+{
+  let nid = 163; const nt = (name) => { if (nid > 255) throw new Error('Troppi tile (max 255)'); T[name] = nid++; return T[name]; };
+  const OT = (name, solid, c, st, tall, extra = {}) => { const id = nt(name); O(id, solid, c, st, { tall, ...extra }); return id; };
+  // montagne: 5 palette x 4 altezze (24, 32, 48, 64 px totali). Più alte dietro, più basse davanti: i piani si sovrappongono.
+  const PAL = { rock: { c: ['#7d808a', '#a2a5b0', '#4e515c'] }, snow: { c: ['#7d808a', '#a8abb8', '#4e515c'], snow: 1 }, canyon: { c: ['#b2582f', '#d27a4a', '#7a3a20'], strata: 1 }, volcano: { c: ['#46302e', '#6a4a44', '#1e1414'], lava: 1 }, ice: { c: ['#8ec4de', '#d8f2ff', '#5a98b8'], snow: 1 } };
+  for (const [pal, o] of Object.entries(PAL)) { MTN[pal] = {}; for (const tall of [8, 16, 32, 48]) MTN[pal][tall] = OT(`MTN_${pal.toUpperCase()}_${tall}`, 1, o.c, 'mtn', tall, { snow: o.snow, strata: o.strata, lava: o.lava, light: o.lava ? { r: 28, c: '255,110,40' } : undefined, lsamp: o.lava ? 6 : undefined }); }
+  const G = ['#2f6b2a', '#4ea03e', '#5a3a1e'], G2 = ['#256028', '#3e8a3a', '#4a3018'], GS = ['#225a3a', '#3a8a52', '#4a3018'], DK = ['#1c4a2a', '#2e6a3a', '#3a2814'];
+  for (const [name, tall, c, st, ex] of [
+    ['PINE24', 24, GS, 'tallpine', {}], ['PINE32', 32, GS, 'tallpine', {}], ['PINE40', 40, GS, 'tallpine', {}], ['PINE32S', 32, GS, 'tallpine', { snow: 1 }], ['PINE40S', 40, GS, 'tallpine', { snow: 1 }],
+    ['CYPRESS32', 32, DK, 'cypress', {}], ['CYPRESS24', 24, DK, 'cypress', {}],
+    ['OAK24', 24, G, 'oak', {}], ['OAK32', 32, G2, 'oak', {}], ['OAKANCIENT', 40, ['#2a5a24', '#4a8a36', '#4a3018'], 'oak', {}],
+    ['PALM28', 28, ['#3a9a40', '#6acb50', '#8a6a3a'], 'palm2', {}], ['PALM36', 36, ['#2e8a3a', '#5ac04a', '#7a5a30'], 'palm2', {}],
+    ['TROPIC24', 24, ['#1f7a34', '#40b058', '#5a3a1e'], 'tropic', {}], ['TROPIC32', 32, ['#186a30', '#34a050', '#4a3018'], 'tropic', {}],
+    ['TWISTED24', 24, ['#2a3a2a', '#4a5a3a', '#3a2a22'], 'twisted', {}], ['TWISTED32', 32, ['#243024', '#3e4e32', '#2e2018'], 'twisted', {}],
+  ]) OT(name, 1, c, st, tall, ex);
+  for (const [i, pc] of [[0, 'L'], [1, 'M'], [2, 'R']]) OT(`MONTREE_${pc}`, 1, ['#1f5a28', '#3e8a38', '#3e2a16'], 'montree', 44, { piece: i });
+  OT('BUSH', 0, ['#3a8a34', '#62b04a', '#2a5a28'], 'bush', 0); OT('BUSH2', 0, ['#2f7a3a', '#58a850', '#2a5a28'], 'bush', 0);
+  // monumenti verticali
+  OT('PAGODA_T', 1, ['#a82a2a', '#e8c040', '#4a1a1a'], 'pagodatall', 48); OT('OBELISK', 1, ['#c8b890', '#e8dcb8', '#8a7a58'], 'obelisk', 48);
+  OT('TOWER_T', 1, ['#9a9aa4', '#b8b8c4', '#5a5a66'], 'towertall', 40); OT('STATUE_T', 1, ['#d8d8e0', '#f0f0f8', '#8a8a98'], 'statuetall', 24);
+  OT('PCOLUMN', 1, ['#ece8e0', '#ffffff', '#b4b0a8'], 'pcolumn', 32); OT('PCOLUMN_GOLD', 1, ['#ece8e0', '#ffffff', '#b4b0a8'], 'pcolumn', 32, { gold: 1 });
+  OT('PINNACLE', 1, ['#c8c4bc', '#e8e4dc', '#8a867e'], 'pinnacle', 40); OT('PEDIMENT', 1, ['#e8e2d6', '#fffaf0', '#b4ac9c'], 'pediment', 0); OT('PEDIMENT_CREST', 1, ['#e8e2d6', '#fffaf0', '#b4ac9c'], 'pediment', 16, { crest: 1 });
+  OT('GOLDRAIL', 1, ['#d8d2c6', '#fffaf0', '#8a8272'], 'goldrail', 0); OT('BRAZIER', 1, ['#8a6a20', '#e8c040', '#c8a030'], 'brazier', 4, { anim: 1, light: { r: 56, c: '255,190,90' } });
+  OT('IMPBANNER', 1, ['#9a1a2a', '#e8c040', '#5a0e18'], 'imperialbanner', 32);
+  // pavimentazioni
+  const ground = (name, c, st, ex = {}) => { const id = nt(name); d(id, { c, st, ...ex }); return id; };
+  ground('PAVE_IRR', ['#8c8a84', '#a8a69e', '#5e5c58'], 'paveirr'); ground('PAVE_SLAB', ['#cfc9bd', '#e6e0d4', '#a39d90'], 'paveslab'); ground('PAVE_EARTH', ['#9a7a4a', '#b4905a', '#7a5c34'], 'paveearth');
+  ground('PAVE_MOSAIC', ['#d8cfc0', '#2a5a9a', '#a89c88'], 'pavemosaic'); ground('PAVE_WOOD', ['#9a6a38', '#b88444', '#5e3e1e'], 'pavewood'); ground('PAVE_ICE', ['#cfe8f4', '#f0fbff', '#8ab8d0'], 'paveice', { slow: 1.1 });
+  ground('PAVE_SAND', ['#d9b878', '#ecd090', '#a88848'], 'pavesand'); ground('PAVE_RED', ['#a85a44', '#c4745a', '#6e3626'], 'paveslab'); ground('STEPS', ['#e2dccf', '#fffaf0', '#a8a294'], 'steps'); ground('GOLDFLOOR', ['#e8e2d6', '#fffaf0', '#b8b0a0'], 'goldfloor');
+  // regno sottomarino di Thalassa: coralli alti, alghe, rovine, correnti (terreni che spingono chi ci cammina)
+  OT('CORALT1', 1, ['#e0507a', '#ff8aa8', '#b03058'], 'coraltall', 24); OT('CORALT2', 1, ['#e8883a', '#ffc070', '#a85a20'], 'coraltall', 16); OT('CORALFAN', 1, ['#9a5ae0', '#d0a0ff', '#6a3aa8'], 'coralfan', 24);
+  OT('KELP', 0, ['#2a8a4a', '#4ac070', '#1a5a30'], 'kelp', 24, { anim: 1 }); OT('SEAGRASS', 0, ['#3a9a5a', '#6ad090', '#1f6a3a'], 'seagrass', 0, { anim: 1 });
+  OT('PEARL', 1, ['#e8f0ff', '#ffffff', '#a8b8d8'], 'pearl', 0, { light: { r: 46, c: '190,230,255' }, lsamp: 2 }); OT('TEMPLECOL', 1, ['#9ab0b8', '#c8dce0', '#5e7480'], 'pcolumn', 24);
+  OT('SHELLWALL', 1, ['#e8d8d0', '#fff0e8', '#b09890'], 'brick'); OT('SHELLROOF', 1, ['#d86a8a', '#ff9ab8', '#a03a5a'], 'roof'); OT('ABYSSROCK', 1, ['#1c2a44', '#2e4468', '#0c1424'], 'rock');
+  ground('ABYSSFLOOR', ['#16223a', '#22345a', '#0e1626'], 'speck');
+  for (const [name, dx, dy] of [['CURRENT_N', 0, -1], ['CURRENT_E', 1, 0], ['CURRENT_S', 0, 1], ['CURRENT_W', -1, 0]]) ground(name, ['#2e6fa0', '#5ab0e0', '#9ae0ff'], 'current', { push: [dx * 46, dy * 46], dirx: dx, diry: dy, anim: 1 });
+  // campo
+  OT('CAMPFIRE', 1, ['#6a4a2a', '#ff9030', '#ffe070'], 'campfire', 0, { anim: 1, light: { r: 76, c: '255,170,70' }, camp: 1 }); OT('TENT', 1, ['#b8a070', '#d8c090', '#8a7450'], 'tent', 0, { camp: 1 });
+}
+
 export const isLiquid = (id) => !!DEFS[id]?.liquid;

@@ -8,8 +8,9 @@ import { TOWNS, ZONE_NAMES, MAPS } from '../data/world.js';
 import { ABILITY_DEFS } from '../data/abilities.js';
 import { getMap, mapIds } from '../world/Generators.js';
 import { World } from '../engine/World.js';
+import { isOpenWorld } from '../engine/TileMap.js';
 import { Atmosphere } from '../engine/Atmosphere.js';
-import { getTile } from '../engine/Sprites.js';
+import { getTile, variantOf } from '../engine/Sprites.js';
 import { text, bar, panel } from '../engine/UI.js';
 import { Player } from '../entities/Player.js';
 import { Enemy } from '../entities/Enemy.js';
@@ -29,6 +30,9 @@ import { applyBarriers, hitBarriers, barrierInteract, nearBarrierPrompt, openBar
 import { Save } from '../systems/GameState.js';
 import { DialogueScene } from './DialogueScene.js';
 import { MenuScene } from './MenuScene.js';
+import { SleepScene } from './SleepScene.js';
+import { BossFx } from '../engine/BossFx.js';
+import { FinaleScene } from './FinaleScene.js';
 import { ShopScene } from './ShopScene.js';
 import { DeathScene } from './DeathScene.js';
 import { CreditsScene } from './CreditsScene.js';
@@ -45,7 +49,7 @@ export class WorldScene {
     this.atmo = new Atmosphere();
     this.atmo.minutes = this.state.minutes;
     this.abilities = new AbilitySystem();
-    this.toasts = []; this.fxs = [];
+    this.toasts = []; this.fxs = []; this.bossFx = []; this.timers = [];
     this.cam = { x: 0, y: 0, shake: 0 };
     this.fade = { a: 1, dir: -1, cb: null };
     this.banner = { text: '', t: 0 };
@@ -75,7 +79,7 @@ export class WorldScene {
     this.boss = null; this.taken = new Set();
     if (st.mount && !MOUNTS[st.mount].maps.includes(m.type)) st.mount = null;
     if (st.mount && this.world.blocked(p, p)) st.mount = null;
-    applyBarriers(this, m);
+    applyBarriers(this, m); this.applyCamp(m);
     this.chunkMode = m.w * m.h > 60000; // mondi enormi: entità caricate a chunk attorno al giocatore
     if (this.chunkMode) { this.buildIndex(m); this.updateChunks(); this.eventT = 50 + Math.random() * 50; this.nightT = 5; }
     else { this.spawnNpcs(m); this.spawnProps(m); this.spawnEnemies(m); this.spawnBoss(m); }
@@ -138,8 +142,8 @@ export class WorldScene {
     for (const [key, c] of this.chunks) if (Math.abs(c.cx - pcx) > 2 || Math.abs(c.cy - pcy) > 2) { for (const e of c.ents) e.dead = true; this.chunks.delete(key); }
   }
   loadChunk(key, cx, cy) {
-    const data = this.chunkIndex.get(key) || { spawns: [], props: [], npcs: [] }, ents = [], st = this.state, scale = st.postgame ? 1.5 : 1;
-    for (const s of data.spawns) { const id = this.pickEnemy(s.table); if (id) { const e = this.world.add(new Enemy(id, s.x * TS + 3, s.y * TS + 6, { scale })); ents.push(e); for (let i = 1; i < (e.def.group || 1); i++) { const g2 = this.world.add(new Enemy(id, e.x + (i % 2 ? 10 : -10) * i, e.y + (i > 1 ? 8 : -4), { scale })); ents.push(g2); } } }
+    const data = this.chunkIndex.get(key) || { spawns: [], props: [], npcs: [] }, ents = [], st = this.state, scale = (st.postgame ? 1.5 : 1) * (this.map.def.power || 1);
+    for (const s of data.spawns) { if (this.campNear(s.x * TS, s.y * TS)) continue; const id = this.pickEnemy(s.table); if (id) { const e = this.world.add(new Enemy(id, s.x * TS + 3, s.y * TS + 6, { scale })); ents.push(e); for (let i = 1; i < (e.def.group || 1); i++) { const g2 = this.world.add(new Enemy(id, e.x + (i % 2 ? 10 : -10) * i, e.y + (i > 1 ? 8 : -4), { scale })); ents.push(g2); } } }
     for (const { d, t } of data.props) { if ((d.showIf && !check(d.showIf, st)) || (d.hideIf && check(d.hideIf, st))) continue; ents.push(this.world.add(new Prop(d, t.x * TS + 1, t.y * TS + 6))); }
     for (const { id, d, t } of data.npcs) { if ((d.if && !check(d.if, st)) || (d.hideIf && check(d.hideIf, st))) continue; ents.push(this.world.add(new NPC(id, d, t.x * TS + 3, t.y * TS + 6))); }
     this.chunks.set(key, { cx, cy, ents });
@@ -207,7 +211,8 @@ export class WorldScene {
     this.world.add(e); this.boss = e;
   }
   spawnEnemy(id, x, y) {
-    const e = new Enemy(id, x, y, { scale: this.state.postgame ? 1.5 : 1 });
+    if (!ENEMIES[id]?.boss && this.campNear(x, y)) return null;   // niente comparse casuali intorno al campo
+    const e = new Enemy(id, x, y, { scale: (this.state.postgame ? 1.5 : 1) * (this.map.def.power || 1) });
     if (this.world.blocked(e, e)) return null;
     this.world.add(e);
     return e;
@@ -232,6 +237,7 @@ export class WorldScene {
 
     this.atmo.update(dt);
     st.minutes = this.atmo.minutes;
+    this.saveT = (this.saveT || 0) - dt; if (this.saveT <= 0) { this.saveT = 45; this.autosave(); } // salvataggio periodico: su mobile la scheda può essere chiusa senza preavviso
     st.tick(dt);
     this.abilities.update(dt);
     this.world.update(dt);
@@ -247,7 +253,7 @@ export class WorldScene {
     this.checkBossIntro();
     this.spawnManager(dt);
     this.updateMusic(dt);
-    if (this.chunkMode) { this.chunkT -= dt; if (this.chunkT <= 0) { this.chunkT = 0.4; this.updateChunks(); } if (this.map.def.gen === 'overworld') { this.nightLife(dt); this.randomEvents(dt); } }
+    if (this.chunkMode) { this.chunkT -= dt; if (this.chunkT <= 0) { this.chunkT = 0.4; this.updateChunks(); } if (isOpenWorld(this.map.def)) { this.nightLife(dt); this.randomEvents(dt); } }
     this.revT = (this.revT || 0) - dt;
     if (this.revT <= 0) { this.revT = 0.25; this.reveal(false); }
     this.gateT -= dt;
@@ -256,7 +262,7 @@ export class WorldScene {
     st.pos = { x: Math.floor(p.cx / TS), y: Math.floor(p.cy / TS) };
 
     // bioma -> meteo (overworld)
-    if (this.map.def.gen === 'overworld') this.atmo.setBiome(this.biomeHere());
+    if (isOpenWorld(this.map.def)) this.atmo.setBiome(this.biomeHere());
 
     // camera
     const tx = p.cx - W / 2, ty = p.cy - H / 2, k = Math.min(1, dt * 8);
@@ -268,6 +274,8 @@ export class WorldScene {
     this.toasts = this.toasts.filter((t) => t.t > 0);
     for (const x of this.fxs) x.t += dt;
     this.fxs = this.fxs.filter((x) => x.t < x.life);
+    for (const b of this.bossFx) b.update(dt, this); this.bossFx = this.bossFx.filter((b) => !b.done); this.campTick(dt);
+    for (const t of this.timers) { t.left -= dt; if (t.left <= 0) { t.fn(); t.dead = true; } } this.timers = this.timers.filter((t) => !t.dead);
     this.banner.t -= dt;
   }
 
@@ -289,7 +297,7 @@ export class WorldScene {
     if (m.type === 'limbo') return 'limbo';
     if (m.type === 'interior') return null;
     if (m.type === 'cave' || m.type === 'underworld') return 'cave';
-    if (m.def.gen !== 'overworld' && m.type !== 'highland') return m.type === 'underwater' ? 'sea' : null;
+    if (!isOpenWorld(m.def) && m.type !== 'highland') return m.type === 'underwater' ? 'sea' : null;
     const z = this.biomeHere();
     if (z === 'ocean') return 'sea';
     if (['haunted'].includes(z)) return night ? 'haunted' : 'wind';
@@ -305,7 +313,7 @@ export class WorldScene {
     if (m.type === 'interior') return m.id.startsWith('int_neo') ? 'cyber' : 'interior';
     if (this.combatT > 0) return 'battle';
     const night = this.atmo.isNight();
-    if (m.def.gen === 'overworld') {
+    if (isOpenWorld(m.def)) {
       const s = m.safeAt(Math.floor(this.player.cx / TS), Math.floor(this.player.cy / TS));
       if (s) { const n = m.safeNames[s]; const civ = { Hinomura: night ? 'hinomura_night' : 'hinomura', Aurelburg: 'aurelburg', Longxi: 'hinomura', 'Augusta Imperialis': 'aurelburg', Silvaneth: 'forest', Sahar: 'desert', 'Porto Marea': 'aurelburg', Kuru: 'hamlet', 'Zero-Quartier': 'cyber', Coralia: 'underwater' }[n]; return civ || 'hamlet'; }
       const z = this.biomeHere(), day = night ? 'field_night' : 'field';
@@ -338,7 +346,7 @@ export class WorldScene {
     const m = this.map, p = this.player;
     let name = m.def.n;
     if (m.type === 'limbo' && m.limbo) name = 'Limbo · ' + m.limbo.name;
-    if (m.def.gen === 'overworld') {
+    if (isOpenWorld(m.def)) {
       const tx = Math.floor(p.cx / TS), ty = Math.floor(p.cy / TS), s = m.safeAt(tx, ty);
       name = s ? m.safeNames[s] : ZONE_NAMES[this.biomeHere()] || name;
     }
@@ -368,7 +376,14 @@ export class WorldScene {
     this.audio.sfx(sound);
     this.fade = { a: 0, dir: 1, cb: () => { this.load(mapId, anchor); this.autosave(); } };
   }
-  autosave() { this.state.minutes = this.atmo.minutes; Save.write(this.state); }
+  autosave() {
+    const st = this.state; if (!st || !this.atmo || this.player?.dead || !(st.hp > 0)) return false;
+    st.minutes = this.atmo.minutes;
+    const ok = Save.write(st);
+    if (!ok && !this.saveWarned) { this.saveWarned = true; this.toast('Salvataggio automatico non riuscito (memoria piena o bloccata). Usa Menu > Sistema per esportare.'); }
+    if (ok) this.saveWarned = false;
+    return ok;
+  }
 
   updateGates() {
     const m = this.map, st = this.state;
@@ -391,6 +406,7 @@ export class WorldScene {
     for (let i = 0; i < 10; i++) { // prova più punti: quelli occupati da nemici vivi vengono scartati
       const s = m.spawns[Math.floor(Math.random() * m.spawns.length)];
       if (Math.hypot(s.x * TS - p.cx, s.y * TS - p.cy) < 260) continue;
+      if (this.campNear(s.x * TS, s.y * TS)) continue;   // il campo tiene lontane le comparse casuali
       const id = this.pickEnemy(s.table);
       const ox = Math.floor(Math.random() * 7) - 3, oy = Math.floor(Math.random() * 7) - 3; // attorno al punto, che può essere occupato
       const e = id && this.spawnEnemy(id, (s.x + ox) * TS + 3, (s.y + oy) * TS + 6);
@@ -419,10 +435,76 @@ export class WorldScene {
       if (d < bd) { bd = d; best = e; }
     }
     if (best) { best.interact(this); return true; }
+    if (this.nearCampFire()) { this.campMenu(); return true; }
     if (barrierInteract(this)) return true;
     const tx = Math.floor(fx / TS), ty = Math.floor(fy / TS);
     if (this.map.o(tx, ty) === T.GATE) { this.startDialogue('gate_night'); return true; }
     return false;
+  }
+
+
+  // ---------------------------------------------------------------- accampamento (Kit da Campo)
+  // Fuoco da campo + banco da lavoro + tenda nel punto scelto. Si monta solo fuori dal combattimento, fuori da città/interni/arene, su spazio libero.
+  // Intorno al campo non compaiono nuovi nemici casuali (raggio ~12 tile), ma i nemici già presenti possono comunque arrivare: non è invulnerabilità.
+  campCells(x, y) { return [[x, y, T.CAMPFIRE], [x - 1, y, T.WORKBENCH], [x, y - 1, T.TENT]]; }
+  campNear(x, y, r = 190) { const c = this.state.camp; return !!c && c.map === this.mapId && Math.hypot(c.x * TS + 8 - x, c.y * TS + 8 - y) < r; }
+  campFree(x, y) {
+    const m = this.map;
+    for (const [cx, cy] of [...this.campCells(x, y), [x, y + 1]]) {
+      if (!m.inb(cx, cy) || m.safeAt(cx, cy) || m.o(cx, cy) || !m.passable(cx, cy, null) || DEFS[m.g(cx, cy)].liquid || DEFS[m.g(cx, cy)].slow < 0.7) return false;
+      if (this.world.list.some((e) => !e.dead && e !== this.player && (e.solid || e.isNPC) && Math.abs(e.cx - (cx * TS + 8)) < 14 && Math.abs(e.cy - (cy * TS + 8)) < 14)) return false;
+    }
+    for (const p of m.portals) if (Math.abs(p.x - x) < 3 && Math.abs(p.y - y) < 3) return false;
+    return true;
+  }
+  campReason() {
+    const m = this.map, p = this.player, st = this.state;
+    if (['interior', 'limbo'].includes(m.type)) return 'Non puoi accamparti qui dentro.';
+    if (m.safeAt(Math.floor(p.cx / TS), Math.floor(p.cy / TS))) return 'Non puoi accamparti dentro un centro abitato.';
+    if (st.mount) return 'Scendi dalla cavalcatura per accamparti.';
+    if (this.boss || (m.boss && !st.flags.has('boss:' + m.boss.id) && Math.hypot(m.boss.x * TS - p.cx, m.boss.y * TS - p.cy) < 260)) return 'Non puoi accamparti vicino a un boss.';
+    if (this.time - (this.lastHit ?? -99) < 6) return 'Sei appena stato colpito: non è il momento di accamparsi.';
+    if (this.world.list.some((e) => e.isEnemy && !e.dead && !e.dormant && !e.def.boss && Math.hypot(e.cx - p.cx, e.cy - p.cy) < 140)) return 'Ci sono nemici nelle vicinanze: non puoi accamparti.';
+    return null;
+  }
+  campToggle() {
+    const st = this.state;
+    if (st.camp && st.camp.map === this.mapId && this.campNear(this.player.cx, this.player.cy, 400)) return this.campRemove(false);
+    const why = this.campReason(); if (why) return why;
+    const p = this.player, tx = Math.floor(p.cx / TS), ty = Math.floor(p.cy / TS), fx = Math.round(p.face.x), fy = Math.round(p.face.y);
+    const order = []; for (let r = 2; r <= 4; r++) { order.push([tx + fx * r, ty + fy * r]); for (let a = -2; a <= 2; a++) order.push([tx + fx * r + (fy ? a : 0), ty + fy * r + (fx ? a : 0)]); }
+    const spot = order.find(([x, y]) => this.campFree(x, y));
+    if (!spot) return 'Non c\'è abbastanza spazio libero per montare il campo (servono 3x3 tile liberi, lontano da ostacoli, PNG e acqua).';
+    if (st.camp) this.campRemove(true);
+    this.placeCamp(spot[0], spot[1]); st.camp = { map: this.mapId, x: spot[0], y: spot[1] };
+    this.audio.sfx('door'); this.spark(spot[0] * TS + 8, spot[1] * TS + 4, '#ffb040', 8); this.autosave();
+    return 'Accampamento montato: fuoco, tenda e banco da lavoro. Usa il fuoco (E) per riposare; il Kit smonta il campo.';
+  }
+  placeCamp(x, y) { for (const [cx, cy, t] of this.campCells(x, y)) this.map.setO(cx, cy, t); }
+  campRemove(silent) {
+    const st = this.state, c = st.camp; if (!c) return 'Non hai montato nessun campo.';
+    if (c.map === this.mapId) for (const [cx, cy, t] of this.campCells(c.x, c.y)) if (this.map.o(cx, cy) === t) this.map.setO(cx, cy, 0);
+    st.camp = null; if (!silent) { this.audio.sfx('back'); this.toast('Accampamento smontato.'); }
+    return 'Accampamento smontato: il Kit da Campo è di nuovo con te.';
+  }
+  applyCamp(m) { const c = this.state.camp; if (c && c.map === m.id) this.placeCamp(c.x, c.y); }
+  nearCampFire() { const c = this.state.camp; if (!c || c.map !== this.mapId) return false; const p = this.player; return Math.hypot(c.x * TS + 8 - (p.cx + p.face.x * 8), c.y * TS + 8 - (p.cy + p.face.y * 8)) < 30; }
+  campMenu() {
+    const st = this.state, wait = Math.max(0, Math.ceil((this.campRestT || 0) - this.time));
+    this.startDialogue({ start: [{ go: 'a' }], nodes: { a: { s: 'Fuoco da campo', t: wait ? 'Le fiamme scoppiettano. Hai già riposato da poco.' : 'Le fiamme scoppiettano e ti scaldano. Qui puoi riprendere fiato.', choices: [{ t: 'Riposare accanto al fuoco', if: wait ? [['flag', '__never__']] : undefined, fx: [['camprest']] }, { t: 'Smontare il campo', fx: [['campremove']] }, { t: 'Niente' }] } } });
+    void st;
+  }
+  campRest() {
+    const st = this.state; if (this.time < (this.campRestT || 0)) return;
+    this.campRestT = this.time + 60;
+    st.hp = Math.min(st.maxHp, st.hp + st.maxHp * 0.4); st.ki = Math.min(st.maxKi, st.ki + st.maxKi * 0.5); st.stamina = st.maxStamina; st.guardPts = st.maxGuard;
+    this.audio.sfx('shrine'); this.toast('Ti riposi accanto al fuoco: PV e Ki parzialmente recuperati.');
+  }
+  campTick(dt) {
+    const c = this.state.camp; if (!c || c.map !== this.mapId) return;
+    const fx = c.x * TS + 8, fy = c.y * TS + 6, d = Math.hypot(fx - this.player.cx, fy - this.player.cy);
+    this.campT = (this.campT || 0) - dt;
+    if (d < 260 && this.campT <= 0) { this.campT = 0.22; this.spark(fx + (Math.random() - 0.5) * 6, fy - 6, Math.random() < 0.5 ? '#ffb040' : '#ffe080', 1); if (Math.random() < 0.5) this.audio.sfx('crackle'); }
   }
 
   // Postazione di crafting entro 3 tile dal giocatore: 'banco' (banco/forgia) o 'alchimia'
@@ -452,20 +534,26 @@ export class WorldScene {
     this.startDialogue({ start: [{ go: 'a' }], nodes: { a: { s: speaker, t } } });
   }
   openShop(id) { this.game.scenes.push(new ShopScene({ shopId: id, scene: this })); }
+  // dopo l'ultimo boss: cinematica del ritorno trionfale nella capitale, poi i titoli di coda
+  startFinale() { this.game.scenes.push(new FinaleScene({ onEnd: () => this.startCredits() })); }
   startCredits() {
     this.game.scenes.push(new CreditsScene({
       onEnd: () => { this.state.postgame = true; this.state.hp = this.state.maxHp; this.toast('Il mondo resta esplorabile: completa tutto!'); this.autosave(); },
     }));
   }
+  // Riposo in locanda: sequenza non interrompibile (SleepScene); gli effetti funzionali sono applicati a schermo scuro da applyRest().
   rest() {
+    if (this.game.scenes.top instanceof SleepScene) return;
+    this.game.scenes.push(new SleepScene({ sc: this, applyRest: () => this.applyRest() }));
+  }
+  applyRest() {
     const st = this.state;
-    st.hp = st.maxHp; st.ki = st.maxKi; st.buffs = [];
+    st.hp = st.maxHp; st.ki = st.maxKi; st.stamina = st.maxStamina; st.guardPts = st.maxGuard; st.buffs = [];
     LS.resetDeaths(this, 'Dopo il riposo, le anime perdute si quietano.');
     this.atmo.minutes = 6.5 * 60;
     st.respawn = { map: this.mapId, anchor: 'entry' };
     this.autosave();
     this.toast('Ti sei riposato. Partita salvata.');
-    this.fade = { a: 0.8, dir: -1, cb: null };
   }
   quickHeal() {
     const st = this.state;
@@ -520,6 +608,7 @@ export class WorldScene {
   }
 
   // ---------------------------------------------------------------- eventi di combattimento
+  later(sec, fn) { this.timers.push({ left: sec, fn }); }
   onKill(e) {
     const d = e.def, st = this.state;
     st.kills[e.id] = (st.kills[e.id] || 0) + 1;
@@ -546,7 +635,8 @@ export class WorldScene {
       st.setFlag('boss:' + e.id);
       this.toast(`${d.n} sconfitto!`);
       if (this.boss === e) this.boss = null;
-      if (d.outro) this.startDialogue(d.outro);
+      this.bossFx.push(new BossFx(this, e));
+      if (d.outro) this.later(d.final ? 3.6 : 2.6, () => this.startDialogue(d.outro)); // prima l'effetto, poi le ultime parole
     }
   }
   onPlayerDeath() {
@@ -634,18 +724,21 @@ export class WorldScene {
     // oggetti ed entità ordinati per profondità
     const ents = this.world.list.filter((e) => !e.dead && e.x + 60 > cx && e.x - 60 < cx + W && e.y + 60 > cy && e.y - 60 < cy + H).sort((a, b) => a.feetY - b.feetY);
     let ei = 0;
-    for (let ty = y0; ty <= y1 + 1; ty++) {
-      if (ty <= y1) for (let tx = x0; tx <= x1; tx++) {
+    const yTall = Math.min(m.h - 1, y1 + 4);   // oggetti alti sotto il bordo dello schermo: la loro cima entra comunque nella vista
+    for (let ty = y0; ty <= yTall + 1; ty++) {
+      if (ty <= yTall) for (let tx = x0; tx <= x1; tx++) {
         const id = m.obj[ty * m.w + tx];
         if (!id) continue;
         const d = DEFS[id];
-        g.drawImage(getTile(id, d.anim ? fr : 0, (tx * 7 + ty * 13) & 3), tx * TS - cx, ty * TS - cy);
+        if (ty > y1 && !(d.tall > (ty - y1 - 1) * TS)) continue;
+        g.drawImage(getTile(id, d.anim ? fr : 0, variantOf(d, tx, ty)), tx * TS - cx, ty * TS - cy - (d.tall || 0));
         if (d.light && (tx * 7 + ty * 13) % (d.lsamp || 1) === 0) lights.push({ x: tx * TS + 8 - cx, y: ty * TS + 8 - cy, r: d.light.r, c: d.light.c });
       }
       while (ei < ents.length && ents[ei].feetY < (ty + 1) * TS) { ents[ei].draw(g, cx, cy, this); ei++; }
     }
     while (ei < ents.length) { ents[ei].draw(g, cx, cy, this); ei++; }
     for (const f of this.fxs) f.draw(g, cx, cy, f.t / f.life);
+    for (const b of this.bossFx) b.draw(g, cx, cy);
 
     // luci dinamiche
     lights.push({ x: p.cx - cx, y: p.cy - cy, r: m.type === 'interior' ? 70 : 52, c: '255,200,120' });
@@ -655,6 +748,8 @@ export class WorldScene {
     for (const e of ents) if (e.isProjectile && (e.kind === 'fire' || e.kind === 'black')) lights.push({ x: e.cx - cx, y: e.cy - cy, r: e.kind === 'black' ? 44 : 34, c: e.kind === 'black' ? '150,90,255' : '255,140,50' });
     if (m.type === 'limbo') lights.push({ x: p.cx - cx, y: p.cy - cy - 30, r: 50, c: '255,225,150' });
     this.atmo.render(g, W, H, lights);
+    if (m.biome === 'underwater' || m.def.biome === 'underwater') this.drawSeaFx(g, cx, cy);
+    for (const b of this.bossFx) b.drawScreen(g);
     if (m.type === 'limbo') this.drawLimboFx(g);
 
     this.drawNightSky(g);
@@ -686,6 +781,16 @@ export class WorldScene {
   }
 
   // Limbo: nebbiolina e pulviscolo sospeso, vignettatura che riduce la visibilità
+  // Ambiente sottomarino: raggi di luce filtrata che ondeggiano, caustiche sul fondale e neve marina sospesa (leggero: ~40 rettangoli e 6 fasce)
+  drawSeaFx(g, cx, cy) {
+    const t = this.time;
+    for (let i = 0; i < 6; i++) { const x = ((i * 97 + t * 7 + Math.sin(t * 0.3 + i) * 12) % (W + 140)) - 70, a = 0.045 + 0.03 * Math.sin(t * 0.7 + i * 1.7); g.fillStyle = `rgba(190,255,245,${a})`; g.beginPath(); g.moveTo(x, 0); g.lineTo(x + 26, 0); g.lineTo(x + 70, H); g.lineTo(x + 30, H); g.fill(); }
+    g.fillStyle = 'rgba(160,240,255,.07)'; for (let i = 0; i < 14; i++) { const x = (i * 71 + Math.sin(t * 0.8 + i) * 18 + t * 4) % W, y = (i * 53 + Math.cos(t * 0.6 + i * 2) * 14) % H; g.fillRect(Math.round(x), Math.round(y), 22, 1); g.fillRect(Math.round(x + 6), Math.round(y + 4), 14, 1); }
+    if (!this.seaDust) this.seaDust = Array.from({ length: 40 }, (_, i) => ({ x: (i * 83) % W, y: (i * 41) % H, s: 0.4 + (i % 5) * 0.2, a: i }));
+    for (const q of this.seaDust) { const x = (q.x + Math.sin(t * 0.5 + q.a) * 10 - cx * 0.15 + W * 4) % W, y = (q.y - t * 5 * q.s - cy * 0.15 + H * 8) % H; g.globalAlpha = 0.25 + 0.2 * Math.sin(t + q.a); g.fillStyle = '#d8fff8'; g.fillRect(Math.round(x), Math.round(y), 1 + (q.a % 4 === 0 ? 1 : 0), 1); }
+    g.globalAlpha = 1;
+    const gr = g.createRadialGradient(W / 2, H / 2, 60, W / 2, H / 2, W * 0.7); gr.addColorStop(0, 'rgba(0,20,40,0)'); gr.addColorStop(1, 'rgba(0,20,50,.35)'); g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  }
   drawLimboFx(g) {
     const t = this.time;
     for (const q of this.limboDust || []) {

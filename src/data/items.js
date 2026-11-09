@@ -8,6 +8,8 @@ export const SLOT_NAMES = { weapon: 'Arma', bow: 'Arco', armor: 'Veste', mask: '
 import { installCrafting } from './crafting.js';
 import { installLimbo } from './limbo.js';
 export const AMMO = ['freccia', 'freccia_fuoco', 'freccia_veleno', 'freccia_magica'];
+export const AMMO_MAX = 100;   // frecce trasportabili in totale (tutti i tipi insieme)
+export const AMMO_PACK = 10;   // i negozi vendono le frecce a confezioni
 
 export const ITEMS = {};
 const add = (id, cat, n, price, desc, o = {}) => { ITEMS[id] = { id, cat, n, price, desc, ...o }; };
@@ -75,10 +77,14 @@ gear('amuleto_sabbia', 'Amuleto di Sabbia', 0, 'charm', { def: 3 }, 'Granelli di
 gear('tuta_sub', 'Tuta da Sub', 900, 'suit', { def: 2, suit: true }, 'Consente di immergersi negli abissi.');
 
 // --- Arco e frecce (pow = moltiplicatore danni, range in px, draw = secondi per la tensione massima) ---
+gear('arco_pellegrino', 'Arco del Pellegrino', 0, 'bow', { pow: 0.85, range: 190, draw: 0.7, unbreakable: true }, 'Indistruttibile: nessuna durabilità, non si rompe, non si vende. Ti accompagna dall\'inizio del viaggio.');
+gear('tridente_abissale', 'Tridente Abissale', 4200, 'weapon', { atk: 54, reach: 28, spd: 1.15 }, 'Forgiato con la perla di Thalassarkhos: la punta brilla di luce marina.');
+add('perla_abissale', 'material', 'Perla Abissale', 600, 'Una perla grande come un pugno, tiepida di luce.');
 gear('arco_corto', 'Arco Corto', 150, 'bow', { pow: 0.9, range: 200, draw: 0.7 }, 'Leggero e rapido da tendere.');
 gear('arco_lungo', 'Arco Lungo', 520, 'bow', { pow: 1.25, range: 280, draw: 0.95 }, 'Portata e potenza, tensione più lenta.');
 gear('arco_elfico', 'Arco Elfico', 1400, 'bow', { pow: 1.55, range: 330, draw: 0.75 }, 'Intagliato dagli elfi di Silvaneth.');
 gear('arco_impulsi', 'Arco a Impulsi', 2600, 'bow', { pow: 2.1, range: 360, draw: 0.6 }, 'Corde di plasma dal futuro.');
+add('kit_campo', 'potion', 'Kit da Campo', 0, 'Usalo dall\'inventario per montare un accampamento: fuoco, tenda e banco da lavoro. Usalo ancora per smontarlo.', { use: { camp: true }, unbreakable: true });
 add('freccia', 'gear', 'Frecce', 3, 'Frecce di legno con punta di ferro.', { ammo: true });
 add('freccia_fuoco', 'gear', 'Frecce Incendiarie', 12, 'Incendiano il bersaglio per 3 secondi.', { ammo: true });
 add('freccia_veleno', 'gear', 'Frecce Avvelenate', 14, 'Avvelenano il bersaglio per 5 secondi.', { ammo: true });

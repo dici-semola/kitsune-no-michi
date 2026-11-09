@@ -271,7 +271,7 @@ export const DIALOGUES = {
     start: [{ go: 'a' }],
     nodes: {
       a: say('Mugenkai', ['...Il filo è tornato. Rosso, come allora.', 'Grazie... per fermarmi. Ricorda il mio nome: era anche il tuo.'], { next: 'b' }),
-      b: say('Narratore', 'Il Tempo si ricuce. Una nuova alba sorge su Hinomoto.', { fx: [['flag', 'game_cleared'], ['credits']] }),
+      b: say('Narratore', 'Il Tempo si ricuce. Una nuova alba sorge su Hinomoto.', { fx: [['flag', 'game_cleared'], ['finale']] }),
     },
   },
 };

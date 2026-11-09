@@ -82,7 +82,7 @@ export class NPC extends Entity {
     if (this.def.hideIf && check(this.def.hideIf, sc.state)) { this.dead = true; sc.spark(this.cx, this.cy - 8, '#e8f0ff', 10); return; } // anima in pace / enigma risolto
     if (this.def.life && (this.life = (this.life ?? this.def.life) - dt) <= 0) { this.dead = true; sc.spark(this.cx, this.cy - 8, '#ffffff', 8); return; } // mercante di passaggio
     if (this.def.nightOnly) this.hidden = !sc.atmo.isNight();
-    this.solid = !this.hidden;
+    this.solid = !this.hidden && this.def.solid !== false; // solid:false impostabile dal Map Editor
     if (this.def.hours) this.hidden = h < this.def.hours[0] || h >= this.def.hours[1];
     this.light = this.def.lantern && sc.state.isNight() ? { r: 46, c: '255,190,90' } : null;
     if (this.hidden) return;

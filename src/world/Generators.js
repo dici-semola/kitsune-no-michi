@@ -7,24 +7,43 @@ import { TileMap } from '../engine/TileMap.js';
 import { genOverworld, genCityMap, genSpirit } from './Overworld.js';
 import { genLimbo } from './Limbo.js';
 import { mulberry32, fbm, strHash } from '../core/Util.js';
+import { PATCHES } from '../data/mapPatches.js';
+import '../data/thalassa.js';
+import { verticalize } from './Vertical.js';
+import { buildPalace, stampPalaceInAugusta } from './Palace.js';
+import { genTerritory, stampTerritoryGates } from './Territory.js';
+import { civVariety, shrineSkins, interiorVariety } from './Variety.js';
+import '../data/territori.js';
+import { applyPatch, applyNpcPatches, resetNpcs, patchIdOf } from './MapPatch.js';
 
 const cache = new Map();
 export const mapIds = () => Object.keys(MAPS);
 export const dropMap = (id) => cache.delete(id);
+export const GEN_OPTS = { vertical: true, variety: true };   // i test lo spengono per confrontare le collisioni con e senza sviluppo verticale
 
 export function getMap(id) {
   if (!cache.has(id)) cache.set(id, build(id));
   return cache.get(id);
 }
 
-function build(id) {
+// Mappa generata dal solo codice, senza le modifiche del Map Editor (per l'editor stesso e per il confronto originale/modificata)
+export function buildBase(id) { return build(id, false); }
+applyNpcPatches(NPCS, PATCHES);
+export const reapplyNpcPatches = (patches = PATCHES) => applyNpcPatches(NPCS, patches);
+
+function build(id, patched = true) {
   const def = MAPS[id];
   if (!def) throw new Error('Mappa sconosciuta: ' + id);
   if (!def.biome) def.biome = def.type === 'interior' ? 'interior' : def.type;
   const m = new TileMap(def.w, def.h);
   m.id = id; m.def = def;
   m.rng = mulberry32(def.seed || strHash(id));
+  resetNpcs(NPCS);                         // la generazione vede sempre le posizioni originali dei PNG: le mappe non dipendono dalle patch
   GEN[def.gen](m, def);
+  if (def.gen === 'overworld') { stampPalaceInAugusta(m, TOWNS.augusta); stampDive2(m); stampTerritoryGates(m); if (GEN_OPTS.variety) { civVariety(m); shrineSkins(m); } if (GEN_OPTS.vertical) verticalize(m); }
+  else if (def.gen === 'territory' && GEN_OPTS.vertical) verticalize(m);
+  if (def.type === 'interior' && GEN_OPTS.variety) interiorVariety(m, def);   // sviluppo verticale (solo grafica: stessa collisione)
+  if (patched) { applyPatch(m, PATCHES[patchIdOf(m)]); applyNpcPatches(NPCS, PATCHES); } // modifiche del Map Editor (map-editor/data -> src/data/mapPatches.js)
   return m;
 }
 
@@ -543,4 +562,87 @@ function genUnderwater(m, def) {
   addSpawns(m, 90, () => 'underwater', { minFrom: [m.anchors.entry, { x: sx, y: sy }], minDist: 10 });
 }
 
-const GEN = { limbo: (...a) => genLimbo(...a), overworld: genOverworld, citymap: genCityMap, spirit: genSpirit, cave: genCave, interior: genInterior, parallel: genParallel, cyber: genCyber, underwater: genUnderwater };
+
+// REGNO SOMMERSO: la città di Nereidia (case di conchiglia, palazzo della Regina, piazza di perle), giardini di corallo, rovine sommerse, canyon abissale,
+// vortici e correnti che spingono il giocatore. Si raggiunge dal portale di risalita in basso; la scala a est porta agli Abissi.
+function genThalassa(m, def) {
+  const { w, h } = m, rng = m.rng;
+  box(m, 0, 0, w, h, T.SEABED, 0);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const f = fbm(x * 0.07, y * 0.07, def.seed + 3, 2); if (f > 0.62) m.setG(x, y, T.ABYSSFLOOR); else if (f < 0.3 && x > 20) m.setG(x, y, T.SAND); }
+  const City = { x: 42, y: 32, w: 58, h: 40 }, free = (x, y) => m.inb(x, y) && !m.obj[idx(m, x, y)];
+  const inCity = (x, y, pad = 0) => x >= City.x - pad && x < City.x + City.w + pad && y >= City.y - pad && y < City.y + City.h + pad;
+  // giardini di corallo e alghe (nord e ovest), foresta di kelp
+  for (let y = 3; y < h - 3; y++) for (let x = 3; x < w - 3; x++) {
+    if (inCity(x, y, 3) || (x > 100 && x < 135 && y > 22 && y < 66)) continue;
+    const f = fbm(x * 0.12, y * 0.12, def.seed + 9, 2), r = rng();
+    if (f > 0.58 && r < 0.38) m.setO(x, y, [T.CORALT1, T.CORALT2, T.CORALFAN, T.CORALT1, T.CORALT2][(x * 3 + y) % 5]);
+    else if (f > 0.46 && r < 0.2) m.setO(x, y, r < 0.1 ? T.KELP : T.SEAGRASS);
+    else if (r < 0.012) m.setO(x, y, T.KELP);
+  }
+  ring(m, 0, 0, w, h, T.ABYSSROCK); ring(m, 1, 1, w - 2, h - 2, T.ABYSSROCK);
+  // Nereidia: piazza lastricata a perle, zona sicura
+  box(m, City.x, City.y, City.w, City.h, T.PAVE_MOSAIC, 0);
+  for (let y = City.y; y < City.y + City.h; y++) for (let x = City.x; x < City.x + City.w; x++) if ((x + y) % 6 === 0) m.setG(x, y, T.PAVE_SLAB);
+  const sid = m.safeNames.push('Nereidia') - 1; for (let y = City.y - 1; y <= City.y + City.h; y++) for (let x = City.x - 1; x <= City.x + City.w; x++) if (m.inb(x, y)) m.safe[idx(m, x, y)] = sid;
+  const cx = City.x + (City.w >> 1), cy = City.y + (City.h >> 1), st = { wall: T.SHELLWALL, roof: T.SHELLROOF };
+  buildingAt(m, cx - 10, City.y + 1, 20, 11, 'thalassa_hall', st, T.PAVE_MOSAIC);                    // palazzo della Regina
+  buildingAt(m, City.x + 3, City.y + 6, 13, 8, 'thalassa_inn', st, T.PAVE_MOSAIC);
+  buildingAt(m, City.x + City.w - 16, City.y + 6, 13, 8, 'thalassa_shop', st, T.PAVE_MOSAIC);
+  for (let i = 0; i < 5; i++) houseAt(m, City.x + 4 + i * 11, City.y + City.h - 10, 8, 7, st, T.PAVE_MOSAIC);
+  // piazza: perle su piedistallo, statue alte, colonne antiche e una grande perla centrale
+  m.setO(cx, cy + 3, T.PEARL); for (const [dx, dy] of [[-8, 1], [8, 1], [-8, 7], [8, 7]]) m.setO(cx + dx, cy + dy, T.STATUE_T); for (const [dx, dy] of [[-5, 4], [5, 4], [-5, 8], [5, 8]]) m.setO(cx + dx, cy + dy, T.PEARL);
+  for (const dx of [-13, 13]) for (const dy of [2, 8]) m.setO(cx + dx, cy + dy, T.TEMPLECOL); for (let x = City.x + 2; x < City.x + City.w - 2; x += 6) m.setO(x, City.y + City.h - 2, T.KELP);
+  m.anchors.town_thalassa = { x: cx, y: cy + 5 }; poi(m, cx, cy + 3, 'Nereidia', 'town');
+  // approdo (portale di risalita) e sentiero fino alla città
+  carve(m, [[cx, h - 9], [cx, City.y + City.h]], 4, T.PAVE_SLAB); blob(m, cx, h - 8, 5, (x, y) => { m.setO(x, y, 0); m.setG(x, y, T.PAVE_SLAB); });
+  m.setO(cx, h - 5, T.PORTAL); m.portals.push({ x: cx, y: h - 5, to: def.exit.to, anchor: def.exit.anchor }); m.anchors.entry = { x: cx, y: h - 7 }; poi(m, cx, h - 5, 'Risalita', 'exit');
+  stampShrine(m, 'thalassa', cx - 8, h - 9, 'Santuario Perlato');
+  // rovine sommerse (ovest): tempio crollato con colonne, statue e due forzieri
+  const Rx = 10, Ry = 34; box(m, Rx - 2, Ry - 2, 30, 24, T.SEABED, 0); box(m, Rx, Ry, 26, 20, T.STONE, 0);
+  ring(m, Rx, Ry, 26, 20, T.RUINWALL); for (const x of [Rx + 12, Rx + 13]) { m.setO(x, Ry + 19, 0); m.setO(x, Ry, 0); } for (let i = 0; i < 5; i++) m.setO(Rx + 4 + rng() * 18 | 0, Ry, 0);
+  for (let x = Rx + 3; x < Rx + 24; x += 4) for (const y of [Ry + 4, Ry + 15]) m.setO(x, y, T.TEMPLECOL); m.setO(Rx + 12, Ry + 9, T.STATUE_T);
+  m.props.push({ type: 'chest', id: 'thalassa_ruin1', x: Rx + 5, y: Ry + 10, loot: [['perla_grezza', 3], ['pozione_vita_m', 2]], gold: 220 }, { type: 'chest', id: 'thalassa_ruin2', x: Rx + 20, y: Ry + 10, loot: [['alga_marina', 4], ['freccia_magica', 5]], gold: 180 },
+    { type: 'sign', sprite: 'sign', x: Rx + 12, y: Ry + 12, text: 'Incisione corrosa: «Qui riposano i custodi dei Tre Abissi. Chi disturba il Leviatano, disturba il mare.»' });
+  carve(m, [[Rx + 12, Ry + 20], [Rx + 12, City.y + 10], [City.x, City.y + 10]], 3, T.SEABED);
+  // vortici (anelli di correnti che girano) e una corrente rettilinea
+  const vortex = (vx, vy, r) => { blob(m, vx, vy, r + 1, (x, y) => { m.setO(x, y, 0); const dx = x - vx, dy = y - vy, d = Math.hypot(dx, dy); if (d < 2 || d > r) return; const tx = -dy, ty = dx; m.setG(x, y, Math.abs(tx) > Math.abs(ty) ? (tx > 0 ? T.CURRENT_E : T.CURRENT_W) : (ty > 0 ? T.CURRENT_S : T.CURRENT_N)); }); m.setO(vx, vy, T.PEARL); poi(m, vx, vy, 'Vortice', 'poi'); };
+  vortex(26, 16, 7); vortex(112, 84, 7); vortex(82, 14, 6);
+  for (let x = 30; x < 70; x++) for (const y of [h - 14, h - 13]) { m.setO(x, y, 0); m.setG(x, y, T.CURRENT_E); }
+  // canyon abissale (est): pareti scure, corridoio sinuoso verso la scala per gli Abissi
+  for (let y = 22; y < 68; y++) for (let x = 102; x < 136; x++) { m.setG(x, y, T.ABYSSFLOOR); m.setO(x, y, fbm(x * 0.2, y * 0.2, def.seed + 1) > 0.5 ? T.ABYSSROCK : (rng() < 0.05 ? T.CRYSTAL : 0)); }
+  const path = [[City.x + City.w, cy], [108, cy], [112, cy - 8], [120, cy - 10], [124, 36]]; carve(m, path, 4, T.ABYSSFLOOR);
+  const sx = 124, sy = 34; m.setO(sx, sy, T.STAIRS_DOWN); m.portals.push({ x: sx, y: sy, to: def.next.id, anchor: 'entry' }); m.anchors['nx_' + def.next.id] = { x: sx, y: sy + 1 }; poi(m, sx, sy, 'Scala verso gli Abissi', 'stairs');
+  carve(m, [[City.x + City.w - 1, cy], [City.x + City.w + 2, cy]], 4, T.PAVE_SLAB);
+  addSpawns(m, 70, () => 'underwater', { minFrom: [m.anchors.entry, m.anchors.town_thalassa, { x: sx, y: sy }], minDist: 12 });
+}
+
+
+// Seconda immersione: una baia a pochi passi da Portomarea porta al regno sommerso di Thalassa (serve la tuta da sub, come per Ryūgū).
+function stampDive2(m) {
+  const A = m.anchors.town_portomarea; if (!A) return;
+  const seen = m.floodWalk(A.x, A.y, null); let best = null, bd = 1e9;
+  for (let y = A.y - 46; y < A.y + 46; y++) for (let x = A.x - 46; x < A.x + 46; x++) {
+    if (!m.inb(x, y)) continue; const i = idx(m, x, y), d = Math.hypot(x - A.x, y - A.y);
+    if (d < 9 || m.ground[i] !== T.WATER || m.obj[i] || !seen[i]) continue;
+    if (![[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => m.g(x + dx, y + dy) === T.DEEP)) continue;   // sul bordo del mare profondo
+    if (d < bd) { bd = d; best = [x, y]; }
+  }
+  if (!best) return;
+  const [x, y] = best; m.setO(x, y, T.PORTAL);
+  m.portals.push({ x, y, to: 'thalassa', anchor: 'entry', req: [['equip', 'suit']], deny: 'Per immergersi nel regno sommerso servirebbe una tuta da sub.' });
+  const n = [[1, 0], [-1, 0], [0, 1], [0, -1]].find(([dx, dy]) => m.passable(x + dx, y + dy, null)) || [0, 1];
+  m.anchors.door_thalassa = { x: x + n[0], y: y + n[1] }; poi(m, x, y, 'Baia di Thalassa', 'stairs');
+}
+
+// Mappa della cinematica finale: la capitale in festa, con la Domus Imperiale, la scalinata e la piazza. Non fa parte del mondo giocabile.
+function genFinale(m, def) {
+  const w = m.w, h = m.h; box(m, 0, 0, w, h, T.PAVE_SLAB, 0);
+  const info = buildPalace(m, (w - 33) >> 1, 1);
+  // strade e case ai lati della piazza (solo decorazione: porte chiuse)
+  for (const [bx, by, bw, bh, st] of [[2, 34, 9, 8, 'jp'], [2, 44, 9, 8, 'eu'], [w - 11, 34, 9, 8, 'eu'], [w - 11, 44, 9, 8, 'jp']]) { try { houseAt(m, bx, by, bw, bh, 'jp', T.PAVE_SLAB); } catch { /* stile non disponibile */ } void st; }
+  for (let y = 31; y < h - 1; y += 4) for (const x of [14, w - 15]) m.setO(x, y, T.LAMPPOST);
+  for (let x = 13; x < w - 12; x += 5) { m.setO(x, 33, T.IMPBANNER); }
+  m.anchors.entry = { x: info.cx, y: h - 4 }; m.anchors.start = m.anchors.entry; m.anchors.palace_stairs = info.stairs; m.anchors.palace_balcony = info.balcony; m.anchors.palace_plaza = info.plaza;
+  m.finale = info;
+}
+const GEN = { territory: genTerritory, thalassa: genThalassa, finale: genFinale, limbo: (...a) => genLimbo(...a), overworld: genOverworld, citymap: genCityMap, spirit: genSpirit, cave: genCave, interior: genInterior, parallel: genParallel, cyber: genCyber, underwater: genUnderwater };

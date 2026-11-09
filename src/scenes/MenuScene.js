@@ -56,6 +56,8 @@ export class MenuScene {
     const r = rows[this.sel], k = this.key;
     if (k === 'potion' && r.def.bomb) {
       st.bombSel = r.id; this.msg = `Esplosivo selezionato: ${r.def.n} (lancia con Z)`;
+    } else if (k !== 'craft' && r.def && r.def.use && r.def.use.camp) {
+      this.msg = this.scene.campToggle();
     } else if (k === 'food' || k === 'potion') {
       const m = st.useItem(r.id);
       this.msg = m ? `${r.def.n}: ${m}` : 'Nessun effetto ora.';

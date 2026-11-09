@@ -1,5 +1,6 @@
 // Ciclo giorno/notte + meteo dinamico per bioma + illuminazione con luci dinamiche.
 import { clamp, lerp, lerpRGB, rgba, pickWeighted } from '../core/Util.js';
+import { drawFog } from './Fog.js';
 
 export const WEATHER = {
   clear: { n: 'Sereno' },
@@ -36,6 +37,8 @@ export const BIOME_WEATHER = {
   parallel: { timestorm: 70, clear: 30 },
   outdoor: { clear: 1 },
 };
+
+const FOG_TINT = { fog: [200, 208, 222], blizzard: [226, 233, 246], sandstorm: [214, 176, 112], smog: [172, 122, 178] };
 
 const KEYS = [
   [0, [12, 16, 48, 0.62]], [4.5, [12, 16, 48, 0.6]], [6, [255, 140, 90, 0.3]], [7.5, [255, 200, 150, 0.08]],
@@ -126,14 +129,10 @@ export class Atmosphere {
     let amb = this.fixed || (this.indoor ? [255, 210, 150, 0.1] : ambientAt(this.hour));
     if (!this.indoor) {
       if (wd.tint) { g.fillStyle = rgba(wd.tint, wd.tint[3] * k); g.fillRect(0, 0, W, H); }
-      if (wd.fog) {
-        const a = wd.fog * k;
-        g.fillStyle = `rgba(205,212,225,${a * 0.55})`; g.fillRect(0, 0, W, H);
-        for (let i = 0; i < 3; i++) { const x = ((this.time * 8 * (i + 1)) % (W + 200)) - 200; g.fillStyle = `rgba(230,235,245,${a * 0.25})`; g.fillRect(x, 40 + i * 70, 260, 50); }
-      }
+      if (wd.fog) drawFog(g, W, H, this.time, wd.fog * k, FOG_TINT[this.cur] || FOG_TINT.fog, 6 + (wd.wind || 0) * 0.12);
       this.drawParticles(g, wd, k);
       const nf = this.nightFog(this.biome);
-      if (nf) { g.fillStyle = `rgba(150,170,200,${nf * 0.5})`; g.fillRect(0, 0, W, H); for (let i = 0; i < 3; i++) { const x = ((this.time * 6 * (i + 1)) % (W + 240)) - 240; g.fillStyle = `rgba(190,205,225,${nf * 0.35})`; g.fillRect(x, 20 + i * 80, 280, 56); } }
+      if (nf) drawFog(g, W, H, this.time, nf * 1.4, [150, 170, 200], 5, 1);
     }
     const alpha = clamp(amb[3] + (this.indoor || this.fixed ? 0 : (wd.dark || 0) * k), 0, 0.88);
     if (alpha > 0.02) {

@@ -42,3 +42,15 @@ Implementati e collegati: tutti i sistemi sopra, 19 mappe, 9 boss, 20 NPC, trama
 - **Crafting**: Banco da lavoro (esplosivi) e Tavolo alchemico (pozioni) nelle città; ricette da trovare/comprare (avviso quando si sbloccano). Esplosivi: **Z** lancia, **O/G** cambia (G in modalità katana). Pozioni elementali (Ghiaccio, Fulmine, Acqua): **P** usa il potere per 2 minuti; acqua + fulmine = sinergia.
 - **Limbo**: alla **terza morte consecutiva** (si azzera con livello, boss, riposo in locanda) l'anima finisce nel Limbo — 5 conformazioni, mai la stessa due volte di fila, seed diverso a ogni ciclo. Prove: enigma delle rune, Cuore della Rinascita (guardiano), orde di scheletri. Si rinasce (sequenza luminosa) nel centro abitato più vicino al luogo della morte.
 - Test: `python3 tests/server.py` e apri `http://localhost:8765/tests/index.html`.
+
+## Quinta iterazione — evoluzione del mondo
+- **Nove nuovi territori** (640×576 tile ciascuno, generati solo quando vi si entra) collegati dal mondo principale tramite passaggi con livello minimo (8–24): Yggwen, Frontiera, Nebbiaria, Altopiani dei Giganti, Ankhar, Mille Isole, Nivalis, Lunaria, Ashkar. Area esplorabile totale circa 10 volte il mondo di partenza. Dati: `src/data/territori.js`, generatore: `src/world/Territory.js`.
+- **Natura verticale**: montagne a piani, alberi alti per bioma, monumenti; la collisione resta solo alla base (`src/world/Vertical.js`, `src/engine/TallSprites.js`).
+- **Varietà**: pavimentazioni e monumenti per città, santuari con aspetto legato al territorio, materiali degli interni (`src/world/Variety.js`).
+- **Arco iniziale indistruttibile**, frecce acquistabili a pacchi nei negozi (massimo 100, anche come ricompensa).
+- **Sonno nelle locande** (sequenza non interrompibile), **effetti a tema** dopo i boss, **cinematica finale** con ritorno alla capitale e Domus Imperiale (`src/world/Palace.js`).
+- **Accampamento**: Kit da Campo dall'inventario; falò, banco da lavoro, riposo, rimovibile e salvato.
+- **Regno sommerso di Thalassa** (portale vicino a Portomarea, serve la tuta) con il boss Thalassarkhos (fasi, finestre di vulnerabilità).
+- **Navigazione dei nemici**: percorso a tile (`src/systems/Path.js`) quando un ostacolo blocca la via; audit di raggiungibilità in `src/world/NavAudit.js`.
+- **Test**: `python3 tests/server.py`, poi aprire `http://127.0.0.1:8765/tests/index.html` (204 controlli). Non verificato: dispositivi mobili reali e prestazioni su telefono.
+- Il "10×" è ottenuto con territori collegati, non con una mappa unica lineare.

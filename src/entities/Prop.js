@@ -10,7 +10,7 @@ export class Prop extends Entity {
     super(x, y, 14, 8);
     this.def = def; this.isProp = true;
     this.sprite = def.sprite || def.type;
-    this.solid = def.type !== 'item';
+    this.solid = def.solid !== undefined ? !!def.solid : def.type !== 'item'; // `solid` può essere impostato dal Map Editor
   }
   get opened() {
     const t = this.def.type, sc = this.world.scene;

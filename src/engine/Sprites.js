@@ -2,6 +2,7 @@
 // Sostituire con spritesheet reali richiede solo di riscrivere queste funzioni.
 import { DEFS } from '../data/tiles.js';
 import { hash2 } from '../core/Util.js';
+import { TALL_STYLE } from './TallSprites.js';
 
 const S = 16;
 const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
@@ -100,14 +101,18 @@ const STYLE = {
   arch(g, c) { R(g, c[0], 0, 2, S, 14); R(g, c[1], 3, 5, 10, 11); R(g, c[2], 2, 2, 12, 2); R(g, '#000', 5, 7, 6, 9); },
 };
 
+Object.assign(STYLE, TALL_STYLE);
+// variante del tile in base alla posizione; le montagne usano un ciclo di 8 tile per formare dorsali continue
+export const variantOf = (def, tx, ty) => (def.st === 'mtn' ? (tx + ty * 3) & 7 : (tx * 7 + ty * 13) & 3);
 const tileCache = new Map();
 export function getTile(id, frame = 0, v = 0) {
   const k = id | (frame << 8) | (v << 12);
   let c = tileCache.get(k);
   if (c) return c;
-  const def = DEFS[id];
-  c = mk(S, S);
-  STYLE[def.st](c.getContext('2d'), def.c, frame, v);
+  const def = DEFS[id], th = def.tall || 0;           // tile alti: il canvas è più alto della base, il disegno sale verso l'alto (y negativo)
+  c = mk(S, S + th);
+  const cg = c.getContext('2d'); if (th) cg.translate(0, th);
+  STYLE[def.st](cg, def.c, frame, v, def);
   tileCache.set(k, c);
   return c;
 }
@@ -236,10 +241,23 @@ const MON = {
   specter(g, c, f) { const w = f & 1; R(g, c[0], -6, -19, 12, 15); for (let i = 0; i < 4; i++) R(g, c[0], -6 + i * 3, -4, 3, 2 + ((i + w) & 1) * 2); R(g, c[1], -4, -26, 8, 7); R(g, c[2], -3, -23, 2, 2); R(g, c[2], 1, -23, 2, 2); R(g, c[1], -10, -17, 4, 9); R(g, c[1], 6, -17, 4, 9); },
   sphinx(g, c, f) { const l = f & 1; R(g, c[0], -16, -3, 5, 3 - l); R(g, c[0], 10, -3, 5, 2 + l); R(g, c[0], -16, -14, 30, 11); R(g, c[1], -16, -14, 30, 3); R(g, c[0], 6, -26, 12, 14); R(g, c[1], 6, -24, 12, 3); R(g, c[2], 4, -29, 16, 4); R(g, c[2], 3, -26, 3, 12); R(g, '#111', 13, -20, 2, 2); R(g, c[0], -22, -10, 6, 3); R(g, c[1], 14, -9, 7, 4); },
   hydra(g, c, f, o) { const n = o.tr?.heads ?? 5; R(g, c[0], -13, -9, 26, 9); R(g, c[1], -13, -9, 26, 2); for (let i = 0; i < n; i++) { const x = -11 + i * (22 / Math.max(1, n - 1 || 1)), s = Math.sin(f * 0.7 + i) * 2, h = 18 + (i % 2) * 5; R(g, c[0], x - 1 + s, -9 - h, 3, h); R(g, c[1], x - 3 + s, -12 - h, 7, 5); R(g, c[2], x - 1 + s, -11 - h, 1, 1); R(g, c[2], x + 2 + s, -11 - h, 1, 1); } },
+  krakenscorp(g, c, f) {
+    // Kraken-Leviatano-Scorpione: cupola corazzata, due grandi chele, sei tentacoli ondulanti e una coda a pungiglione ad arco sul dorso
+    for (let i = 0; i < 6; i++) { const x = -12 + i * 5; for (let k = 0; k < 9; k++) R(g, k % 3 ? c[1] : c[0], x + Math.round(Math.sin(f * 0.6 + i + k * 0.7) * 2), -8 + k, 3, 1); R(g, '#a8f0e8', x + Math.round(Math.sin(f * 0.6 + i + 6.3) * 2), -2, 1, 1); }
+    R(g, c[0], -14, -22, 28, 15); R(g, c[0], -11, -27, 22, 6); R(g, c[0], -7, -30, 14, 4);
+    R(g, c[1], -14, -22, 28, 2); R(g, c[1], -11, -27, 22, 1); for (let x = -12; x < 12; x += 5) R(g, c[1], x, -20, 2, 12);
+    R(g, 'rgba(0,0,0,.28)', 4, -22, 10, 15);
+    R(g, c[2], -7, -20, 4, 4); R(g, c[2], 3, -20, 4, 4); R(g, '#fff', -6, -19, 1, 1); R(g, '#fff', 4, -19, 1, 1);
+    for (const sd of [-1, 1]) { const x = sd * 17, w = Math.round(Math.sin(f * 0.5) * 1.5); R(g, c[1], sd * 14 - (sd < 0 ? 5 : 0), -16, 5, 4); R(g, c[0], x - 3 + (sd < 0 ? -2 : 0), -22 + w, 7, 12); R(g, c[1], x - 3 + (sd < 0 ? -2 : 0), -22 + w, 7, 3); R(g, c[0], x - 1 + (sd < 0 ? -2 : 0), -25 + w, 3, 4); R(g, '#06101c', x - 1 + (sd < 0 ? -2 : 0), -18 + w, 2, 5); }
+    const sw = Math.round(Math.sin(f * 0.4) * 2);
+    for (const [x, y] of [[10, -24], [14, -31], [13, -39], [7, -45], [-1, -47], [-6, -44]]) { R(g, c[0], x + sw, y, 5, 5); R(g, c[1], x + sw, y, 5, 1); }
+    R(g, c[2], -9 + sw, -42, 4, 6); R(g, '#fff', -8 + sw, -40, 1, 2); if (f & 1) R(g, 'rgba(120,255,230,.5)', -10 + sw, -44, 6, 10);
+    for (let i = 0; i < 7; i++) R(g, '#7affea', -12 + ((i * 11 + f) % 26), -26 + (i * 5) % 18, 1, 1);
+  },
   dragon(g, c, f) { for (let i = 0; i < 8; i++) { const y = Math.round(Math.sin((i + f) * 0.9) * 3); R(g, i % 2 ? c[0] : c[1], -18 + i * 4, -6 - y, 5, 6); R(g, c[2], -17 + i * 4, -9 - y, 2, 3); } R(g, c[0], 14, -16, 9, 9); R(g, c[2], 17, -14, 2, 2); R(g, c[1], 12, -20, 2, 5); R(g, c[1], 18, -20, 2, 5); R(g, c[2], 22, -11, 3, 1); R(g, c[1], 21, -6, 6, 1); },
   yukionna(g, c, f) { const w = f & 1; R(g, c[0], -6, -22, 12, 20); R(g, c[1], -8, -4, 16, 3 + w); R(g, '#e8f4ff', -4, -31, 8, 9); R(g, '#111', -2, -27, 1, 2); R(g, '#111', 1, -27, 1, 2); R(g, c[2], -5, -33, 10, 3); R(g, c[1], -12, -20, 5, 3); R(g, c[1], 7, -20, 5, 3); R(g, '#2a3a6a', -4, -32, 8, 2); },
 };
-const TOP = { ghost: -19, blob: -10, wisp: -17, beast: -14, tanuki: -21, boar: -16, wolf: -17, tengu: -28, kappa: -21, frog: -13, skeleton: -19, spider: -9, scorpion: -17, mummy: -25, yeti: -28, bat: -12, bird: -12, goblin: -18, snake: -9, golem: -22, drone: -14, fish: -13, shark: -16, jelly: -18, crab: -14, gaki: -20, oni: -28, cerberus: -17, ronin: -27, mechdog: -15, glitch: -15, specter: -26, sphinx: -29, hydra: -30, dragon: -20, yukionna: -33 };
+const TOP = { krakenscorp: -50, ghost: -19, blob: -10, wisp: -17, beast: -14, tanuki: -21, boar: -16, wolf: -17, tengu: -28, kappa: -21, frog: -13, skeleton: -19, spider: -9, scorpion: -17, mummy: -25, yeti: -28, bat: -12, bird: -12, goblin: -18, snake: -9, golem: -22, drone: -14, fish: -13, shark: -16, jelly: -18, crab: -14, gaki: -20, oni: -28, cerberus: -17, ronin: -27, mechdog: -15, glitch: -15, specter: -26, sphinx: -29, hydra: -30, dragon: -20, yukionna: -33 };
 
 // Accessori: dettagli distintivi sovrapposti alla sagoma (top = y della sommità)
 const ACC = {

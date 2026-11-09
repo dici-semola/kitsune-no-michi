@@ -87,6 +87,8 @@ export const TUNES = {
   boss_final: { bpm: 168, wave: 'p25', bass: 'pump', arp: 'up', drums: 'boss', chords: 'Em C D B Em C B B7'.split(' '), lead: [
     'E6:2 B5:2 E6:2 G6:2 B6:4 A6:4', 'G6:2 E6:2 C6:2 E6:2 G6:4 F#6:4', 'A6:2 F#6:2 D6:2 F#6:2 A6:4 G6:4', 'F#6:2 D#6:2 B5:2 D#6:2 F#6:4 B6:4',
     'B6:2 G6:2 E6:2 G6:2 B6:2 E7:2 D7:4', 'C7:2 G6:2 E6:2 G6:2 C7:4 B6:4', 'B6:2 F#6:2 D#6:2 F#6:2 B6:4 A#6:4', 'B6:2 D#7:2 F#7:4 E7:2 D#7:2 B6:4'] },
+  finale: { bpm: 126, wave: 'p25', bass: 'oct', arp: 'up', drums: 'march', chords: 'C G Am F C G F C'.split(' '), lead: [
+    'C6:4 E6:4 G6:4 C7:4', 'B6:4 G6:4 D6:4 G6:4', 'A6:4 C7:4 E7:4 C7:4', 'A6:4 F6:4 C6:4 F6:4', 'E6:4 G6:4 C7:4 E7:4', 'D7:4 B6:4 G6:4 B6:4', 'A6:4 C7:4 F7:4 C7:4', 'G6:4 E6:4 C7:8'] },
   credits: { bpm: 100, wave: 'p50', bass: 'oct', arp: 'up', drums: 'march', chords: 'C G Am Em F C F G'.split(' '), lead: [
     'G5:4 C6:4 E6:4 G6:4', 'D6:4 G6:4 B6:4 G6:4', 'C6:4 E6:4 A6:4 E6:4', 'B5:4 E6:4 G6:4 B6:4', 'A5:4 C6:4 F6:4 A6:4', 'G5:4 C6:4 E6:4 C6:4', 'A6:4 G6:4 F6:4 E6:4', 'D6:4 G6:4 B6:8'] },
 };

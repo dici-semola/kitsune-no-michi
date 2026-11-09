@@ -1,6 +1,6 @@
 // Service worker: il gioco funziona offline dopo la prima visita.
 // Strategia: pagine = rete prima (così gli aggiornamenti arrivano subito), file statici = cache prima + aggiornamento in background.
-const VERSION = 'kitsune-v2';
+const VERSION = 'kitsune-v5';
 const CORE = ['./', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'src/main.js'];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(VERSION).then((c) => c.addAll(CORE)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => {

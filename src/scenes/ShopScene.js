@@ -1,5 +1,5 @@
 import { W, H } from '../core/Game.js';
-import { ITEMS, SHOPS, SLOTS } from '../data/items.js';
+import { ITEMS, SHOPS, SLOTS, AMMO_MAX, AMMO_PACK } from '../data/items.js';
 import { check } from '../systems/Script.js';
 import { panel, text, list, nav, wrap } from '../engine/UI.js';
 import { drawItemIcon } from '../engine/Sprites.js';
@@ -14,7 +14,7 @@ export class ShopScene {
   rows() {
     const st = this.game.state;
     if (this.mode === 0) {
-      return this.shop.stock.filter(([, , c]) => check(c, st)).map(([id, price]) => ({ id, price: price ?? ITEMS[id].price }));
+      return this.shop.stock.filter(([, , c]) => check(c, st)).map(([id, price]) => { const pack = ITEMS[id].ammo ? AMMO_PACK : 1; return { id, price: (price ?? ITEMS[id].price) * pack, pack }; });
     }
     return Object.keys(st.inv.items)
       .filter((id) => ITEMS[id].cat !== 'story' && !st.inv.isEquipped(id) && Math.floor(ITEMS[id].price * SELL_RATE) > 0)
@@ -31,7 +31,13 @@ export class ShopScene {
     if (!inp.pressed('confirm') || !rows.length) return;
     const r = rows[this.sel], def = ITEMS[r.id];
     if (this.mode === 0) {
-      if (def.cat === 'gear' && st.inv.has(r.id)) this.msg = 'Lo possiedi già.';
+      if (def.ammo) { // frecce: a confezioni, fino al limite di 100 in totale
+        const room = AMMO_MAX - st.inv.ammoTotal(), cost = (n) => Math.ceil(r.price * n / r.pack);
+        if (room <= 0) this.msg = `Limite di ${AMMO_MAX} frecce raggiunto.`;
+        else if (st.inv.gold < cost(Math.min(r.pack, room))) this.msg = 'Monete insufficienti.';
+        else { const got = st.give(r.id, Math.min(r.pack, room)); if (got > 0) { st.inv.gold -= cost(got); this.msg = `Acquistate ${got} ${def.n.toLowerCase()} (${st.inv.ammoTotal()}/${AMMO_MAX})`; inp.audio?.sfx('coin'); } else this.msg = 'Inventario pieno.'; }
+      }
+      else if (def.cat === 'gear' && st.inv.has(r.id)) this.msg = 'Lo possiedi già.';
       else if (st.inv.gold < r.price) this.msg = 'Monete insufficienti.';
       else if (st.give(r.id, 1) > 0) { st.inv.gold -= r.price; this.msg = `Acquistato: ${def.n}`; inp.audio?.sfx('coin'); }
       else this.msg = 'Inventario pieno.';
@@ -48,10 +54,11 @@ export class ShopScene {
     text(g, `¥ ${st.inv.gold}`, W - 34, 22, '#ffd860', { align: 'right' });
     text(g, (this.mode === 0 ? '[ COMPRA ]  vendi' : ' compra  [ VENDI ]') + '    ←/→ cambia   Invio conferma   Esc esci', 34, 36, '#a8a0b8');
     if (!rows.length) text(g, 'Niente da mostrare.', 40, 60, '#999');
+    if (this.mode === 0 && rows.some((r) => ITEMS[r.id].ammo)) text(g, `Frecce portate: ${st.inv.ammoTotal()}/${AMMO_MAX}`, W - 34, 36, '#9ad0ff', { align: 'right' });
     list(g, rows, this.sel, 30, 54, 226, 13, 14, (r, x, y, on) => {
       drawItemIcon(g, ITEMS[r.id], x, y);
       const afford = this.mode === 1 || st.inv.gold >= r.price;
-      text(g, ITEMS[r.id].n + (r.n ? ` x${r.n}` : ''), x + 14, y + 1, afford ? (on ? '#fff' : '#e8dcc8') : '#8a7a7a');
+      text(g, ITEMS[r.id].n + (r.n ? ` x${r.n}` : r.pack > 1 ? ` x${r.pack}` : ''), x + 14, y + 1, afford ? (on ? '#fff' : '#e8dcc8') : '#8a7a7a');
       text(g, `${r.price}¥`, x + 218, y + 1, afford ? '#ffd860' : '#7a6a3a', { align: 'right' });
     });
     if (rows[this.sel]) {

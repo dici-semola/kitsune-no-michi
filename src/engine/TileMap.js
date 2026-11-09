@@ -4,6 +4,8 @@ import { TS } from '../core/Util.js';
 
 // Mappa a due layer + metadati (portali, props, spawn, ancore, cancelli, boss).
 import { REALM_TIER } from '../data/gates.js';
+// mondi aperti con bioma per cella (zone): il mondo principale e i territori esterni
+export const isOpenWorld = (def) => !!def && (def.gen === 'overworld' || def.gen === 'territory');
 export class TileMap {
   constructor(w, h) {
     this.w = w; this.h = h;
@@ -11,6 +13,7 @@ export class TileMap {
     this.obj = new Uint8Array(w * h);
     this.zone = new Uint8Array(w * h);  // indice bioma (solo overworld)
     this.safe = new Uint8Array(w * h);  // 0 = pericoloso, >0 = id area sicura (villaggio/città)
+    this.phys = null;    // fisica forzata per cella (Map Editor): 0 standard, 1 solido, 2 libero. null = nessuna modifica
     this.safeNames = [''];
     this.portals = [];   // {x,y,to,anchor,req,deny}
     this.props = [];     // {type,x,y,...} -> entità Prop
@@ -34,11 +37,14 @@ export class TileMap {
   passable(tx, ty, m) {
     if (!this.inb(tx, ty)) return false;
     const i = ty * this.w + tx;
+    const ph = this.phys ? this.phys[i] : 0;
+    if (ph === 1) return false;                       // solido forzato dall'editor: vale per tutti (anche chi vola)
     const oid = this.obj[i];
     const go = oid ? DEFS[oid] : null;
     // volo e nuoto del giocatore non scavalcano i regni ancora sigillati
     if (m && m.isPlayer && this.realm && (m.flying || m.waterOnly) && !TileMap.ignoreBarriers) { const r = this.realm[i]; if (REALM_TIER[r] > 0 && !TileMap.openRealms.has(r)) return false; }
     if (go && go.barrier && !TileMap.ignoreBarriers) return false;   // barriere di progressione: bloccano anche chi vola
+    if (ph === 2) return true;                        // libero forzato dall'editor (le barriere di progressione restano chiuse)
     if (m && m.flying) return true;
     if (go && go.solid && !(go.barrier && TileMap.ignoreBarriers)) return false;
     if (m && m.projectile) return true;
@@ -61,7 +67,7 @@ export class TileMap {
 
   groundDefAt(px, py) { return DEFS[this.g(Math.floor(px / TS), Math.floor(py / TS))]; }
   biomeAt(tx, ty) {
-    if (this.def.gen === 'overworld') return BIOME_IDS[this.zone[ty * this.w + tx]] || 'meadow';
+    if (isOpenWorld(this.def)) return BIOME_IDS[this.zone[ty * this.w + tx]] || 'meadow';
     return this.def.biome;
   }
 

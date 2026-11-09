@@ -29,6 +29,7 @@ const FL = (n, to) => ({ n, to, anchor: 'elev' }); // voce di ascensore
 
 export const MAPS = {
   limbo: { n: 'Limbo', type: 'limbo', gen: 'limbo', biome: 'limbo', w: 96, h: 72, seed: 1, cfg: 0, trial: 'enigma', ambient: [26, 28, 42, 0.5] },
+  capitale_festa: { n: 'Augusta Imperialis · Giorno della Vittoria', type: 'outdoor', gen: 'finale', biome: 'meadow', w: 64, h: 58, seed: 77, finale: true },
   overworld: { n: 'Terre di Hinomoto', type: 'outdoor', gen: 'overworld', w: 320, h: 224, seed: 11, mobs: 480 },
 
   // ===== Hinomura: case a più piani con soffitte e cantine =====

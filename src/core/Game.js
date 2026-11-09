@@ -27,9 +27,14 @@ export class Game {
     this.last = 0;
     if (typeof addEventListener !== 'undefined') {
       addEventListener('resize', () => this.fit()); addEventListener('orientationchange', () => setTimeout(() => this.fit(), 200)); this.fit();
+      // salva quando la pagina passa in background o viene chiusa (mobile: la scheda può essere terminata dal sistema)
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this.flushSave(); });
+      addEventListener('pagehide', () => this.flushSave());
       for (const ev of ['keydown', 'pointerdown']) addEventListener(ev, () => this.audio.unlock(), { passive: true }); // l'audio parte al primo input
     }
   }
+
+  flushSave() { const w = this.scenes.stack.find((s) => s.constructor.name === 'WorldScene'); try { w?.autosave(); } catch { /* ignora */ } }
 
   // Nuovo bus per ogni partita: evita listener duplicati di stati precedenti.
   resetBus() { this.bus = new EventBus(); return this.bus; }

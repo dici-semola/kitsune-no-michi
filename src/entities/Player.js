@@ -7,6 +7,10 @@ import { MOUNTS } from '../data/mounts.js';
 import { AMMO } from '../data/items.js';
 import { angDiff, TS } from '../core/Util.js';
 
+export const GUARD_MAX = 3.0;  // durata massima di una guardia continua (s)
+export const GUARD_CD = 0.9;    // recupero dopo che la guardia si è esaurita (s)
+const TRAIL_LIFE = 0.22;        // vita di un'immagine della scia del dash (s)
+
 // Protagonista: katana (combo a 3 colpi), difesa/parata, schivata, arco con frecce speciali, abilità, mezzi di trasporto.
 export class Player extends Entity {
   constructor(x, y, state) {
@@ -17,7 +21,7 @@ export class Player extends Entity {
     this.inv = 0; this.flash = 0; this.kbx = 0; this.kby = 0;
     this.dash = null; this.afterimg = [];
     this.slowT = 0; this.stunT = 0; this.invertT = 0; this.poisonT = 0; this.poisonDps = 3; this.poisonAcc = 0;
-    this.guard = false; this.guardT = 0; this.gRegT = 0; this.gBroken = false; this.gBreakFx = 0; this.parryFx = 0; this.dodge = null; this.stT = 0;
+    this.guard = false; this.guardT = 0; this.guardCd = 0; this.guardLatch = false; this.gRegT = 0; this.gBroken = false; this.gBreakFx = 0; this.parryFx = 0; this.dodge = null; this.stT = 0;
     this.drawing = false; this.draw_ = 0; this.aim = { x: 0, y: 1 };
   }
   // Flag letti da TileMap.passable per decidere dove si può camminare
@@ -41,20 +45,24 @@ export class Player extends Entity {
     super.update(dt);
     const inp = sc.game.input, st = this.state;
     this.atkCd -= dt; this.comboT -= dt; this.inv -= dt; this.flash -= dt; this.parryFx -= dt;
-    this.slowT -= dt; this.stunT -= dt; this.gBreakFx -= dt; this.gRegT -= dt; this.invertT -= dt; this.stT -= dt;
+    this.slowT -= dt; this.stunT -= dt; this.gBreakFx -= dt; this.gRegT -= dt; this.guardCd -= dt; this.invertT -= dt; this.stT -= dt;
     if (this.poisonT > 0) {
       this.poisonT -= dt; this.poisonAcc += dt;
       if (this.poisonAcc >= 0.5) { this.poisonAcc = 0; const d = Math.min(Math.max(0, st.hp - 1), this.poisonDps * 0.5); if (d > 0) { st.hp -= d; sc.floatText(this.cx, this.y - 10, String(Math.round(d)), '#80e060'); } }
     }
     st.ki = Math.min(st.maxKi, st.ki + 2.5 * dt);
     if (this.stT <= 0 && !this.guard && !this.drawing) st.stamina = Math.min(st.maxStamina, st.stamina + 30 * dt);
+    if (!Number.isFinite(st.guardPts)) st.guardPts = st.maxGuard; // un valore corrotto non deve mai bloccare la difesa
     // la guardia si rigenera quando non è in uso (più lentamente se rotta)
     if (!this.guard && this.gRegT <= 0) {
       st.guardPts = Math.min(st.maxGuard, st.guardPts + (this.gBroken ? 9 : 16) * dt);
       if (this.gBroken && st.guardPts >= st.maxGuard * 0.4) this.gBroken = false;
     }
-    if (this.dash) { this.updateDash(dt, sc); return; }
-    if (this.dodge) { this.updateDodge(dt, sc); return; }
+    { const gd = sc.map.groundDefAt(this.cx, this.cy); if (gd.push && !this.dash && !this.dodge && !this.state.mount) this.move(gd.push[0] * dt, gd.push[1] * dt); } // correnti marine
+    if (this.dash || this.dodge) { this.guard = false; this.guardLatch = this.guardLatch || inp.held('defend'); }
+    if (this.dash) { this.updateDash(dt, sc); this.pruneTrail(dt); return; }
+    if (this.dodge) { this.updateDodge(dt, sc); this.pruneTrail(dt); return; }
+    this.pruneTrail(dt);
 
     if (Math.abs(this.kbx) + Math.abs(this.kby) > 2) {
       this.move(this.kbx * dt, this.kby * dt);
@@ -62,15 +70,19 @@ export class Player extends Entity {
     }
     let [ax, ay] = inp.axis();
     if (this.invertT > 0) { ax = -ax; ay = -ay; }
-    if (this.stunT > 0) { this.guard = false; this.drawing = false; this.atkT = 0; return; }
+    if (this.stunT > 0) { this.guard = false; this.guardLatch = inp.held('defend'); this.drawing = false; this.atkT = 0; return; }
     const can = !st.mount;
 
-    // difesa: tieni premuto; la pressione iniziale (primi 0,2 s) è una parata perfetta
-    const was = this.guard;
-    this.guard = can && inp.held('defend') && !this.gBroken && st.guardPts > 0 && !this.drawing && this.atkT <= 0;
-    if (was && !this.guard) this.gRegT = 0.9;
+    // difesa: tieni premuto; la pressione iniziale (primi 0,2 s) è una parata perfetta.
+    // Ogni attivazione dura al massimo GUARD_MAX secondi; poi la guardia cala da sola e serve rilasciare il comando e attendere il recupero.
+    const was = this.guard, hold = inp.held('defend');
+    if (!hold) this.guardLatch = false;
+    this.guard = can && hold && !this.guardLatch && this.guardCd <= 0 && !this.gBroken && st.guardPts > 0 && !this.drawing && this.atkT <= 0;
+    if (this.guard && was && this.guardT >= GUARD_MAX) { this.guard = false; this.guardLatch = true; this.guardCd = GUARD_CD; sc.audio.sfx('back'); sc.floatText(this.cx, this.y - 14, 'Guardia esaurita', '#bfe0ff'); }
+    if (was && !this.guard) { this.gRegT = 0.9; if (!this.guardLatch && !this.gBroken) this.guardCd = Math.max(this.guardCd, 0.25); } // breve pausa anche al rilascio: niente "tap" infinito
     if (this.guard) this.guardT = was ? this.guardT + dt : 0;
     if (this.guard && !was) sc.audio.sfx('select');
+    else if (!this.guard && !was) this.guardT = 0;
 
     // arco
     const lockMove = this.updateBow(dt, sc, inp, can, [ax, ay]);
@@ -220,24 +232,27 @@ export class Player extends Entity {
   startDash(dx, dy, dist, onEnd) {
     this.dash = { dx, dy, left: dist, onEnd };
     this.inv = Math.max(this.inv, 0.35 + dist / 320);
-    this.afterimg.length = 0;
+    this.afterimg.length = 0; this.guard = false;
   }
   updateDash(dt, sc) {
     const d = this.dash;
     const step = Math.min(d.left, 320 * dt);
     const r = this.move(d.dx * step, d.dy * step);
     d.left -= step;
-    this.afterimg.push([this.cx, this.feetY]); if (this.afterimg.length > 6) this.afterimg.shift();
+    this.trail(6);
     this.walk += dt * 20;
     if (d.left <= 0.5 || (r.hitX && Math.abs(d.dx) > 0.5) || (r.hitY && Math.abs(d.dy) > 0.5)) {
       this.dash = null; d.onEnd?.(sc);
     }
   }
+  // Scia del dash: ogni immagine ha un'età e svanisce in 0,22 s, poi viene eliminata (prima restava ferma sul posto finché non c'era un altro dash)
+  trail(max) { this.afterimg.push({ x: this.cx, y: this.feetY, dir: this.dir, age: 0 }); while (this.afterimg.length > max) this.afterimg.shift(); }
+  pruneTrail(dt) { for (const a of this.afterimg) a.age += dt; this.afterimg = this.afterimg.filter((a) => a.age < TRAIL_LIFE); }
   updateDodge(dt, sc) {
     const d = this.dodge, step = Math.min(d.left, 210 * dt);
     const r = this.move(d.dx * step, d.dy * step);
     d.left -= step;
-    this.afterimg.push([this.cx, this.feetY]); if (this.afterimg.length > 5) this.afterimg.shift();
+    this.trail(5);
     this.walk += dt * 18;
     if (d.left <= 0.5 || (r.hitX && Math.abs(d.dx) > 0.5) || (r.hitY && Math.abs(d.dy) > 0.5)) this.dodge = null;
   }
@@ -272,7 +287,7 @@ export class Player extends Entity {
       }
     }
     const real = Math.max(1, Math.round(dmg - st.def * 0.5));
-    st.hp -= real; this.inv = 0.9; this.flash = 0.15;
+    st.hp -= real; this.inv = 0.9; this.flash = 0.15; sc.lastHit = sc.time;
     if (src) {
       const dx = this.cx - (src.cx ?? this.cx), dy = this.cy - (src.cy ?? this.cy), l = Math.hypot(dx, dy) || 1;
       this.kbx = (dx / l) * 130; this.kby = (dy / l) * 130;
@@ -302,9 +317,10 @@ export class Player extends Entity {
   draw(g, cx, cy, sc) {
     if (this.inv > 0 && !this.dash && !this.dodge && !(this.parryFx > 0) && Math.floor(this.t * 20) % 2 === 0) return;
     const x = Math.round(this.cx - cx), y = Math.round(this.feetY - cy);
-    for (let i = 0; i < this.afterimg.length; i++) {
-      g.globalAlpha = (i + 1) / this.afterimg.length * 0.35;
-      drawPlayerSprite(g, Math.round(this.afterimg[i][0] - cx), Math.round(this.afterimg[i][1] - cy), this.state.look, this.dir, 1);
+    for (const a of this.afterimg) { // scia: solo se il dash è in corso o appena finito, sempre sfumata; mai sopra il personaggio
+      const k = 1 - a.age / TRAIL_LIFE; if (k <= 0 || Math.hypot(a.x - this.cx, a.y - this.feetY) < 4) continue;
+      g.globalAlpha = k * 0.3;
+      drawPlayerSprite(g, Math.round(a.x - cx), Math.round(a.y - cy), this.state.look, a.dir, 1);
     }
     g.globalAlpha = 1;
     const mt = this.mount, mk = this.state.mount;
@@ -321,7 +337,7 @@ export class Player extends Entity {
       drawPlayerSprite(g, x, y - lift - (mk === 'dolphin' ? 2 : 6), this.state.look, this.dir, 0);
     } else {
       if (this.dodge) g.globalAlpha = 0.65;
-      drawPlayerSprite(g, x + (this.gBreakFx > 0 ? Math.round(Math.sin(this.t * 60) * 2) : 0), y, this.state.look, this.dir, Math.floor(this.walk), { flash: this.flash > 0 || this.gBreakFx > 0.45 });
+      drawPlayerSprite(g, x + (this.gBreakFx > 0 ? Math.round(Math.sin(this.t * 60) * 2) : 0), y + (this.guard ? 1 : 0), this.state.look, this.dir, Math.floor(this.walk), { flash: this.flash > 0 || this.gBreakFx > 0.45 });
       g.globalAlpha = 1;
     }
     // aureola luminosa: segno dell'anima sospesa tra vita e morte (solo nel Limbo). Segue il capo, con un lieve ondeggiare e pulsare.
@@ -341,6 +357,13 @@ export class Player extends Entity {
       g.strokeStyle = perfect ? '#ffffff' : gr < 0.3 ? '#ff9060' : '#7ab8ff'; g.lineWidth = 2;
       g.beginPath(); g.arc(x, y - 10, 15, a - 1, a + 1); g.stroke();
       g.fillStyle = perfect ? 'rgba(200,250,255,.35)' : 'rgba(120,180,255,.2)'; g.beginPath(); g.moveTo(x, y - 10); g.arc(x, y - 10, 15, a - 1, a + 1); g.fill(); g.lineWidth = 1;
+      if (this.guard) { // postura difensiva: lama tenuta di traverso davanti al corpo, e barra della durata residua
+        g.save(); g.translate(x + this.face.x * 8, y - 9 + this.face.y * 5); g.rotate(a + Math.PI / 2);
+        g.fillStyle = '#e8eef8'; g.fillRect(-10, -1, 20, 2); g.fillStyle = '#8a9ab0'; g.fillRect(-10, 0, 20, 1); g.fillStyle = '#c8283a'; g.fillRect(-12, -1, 3, 2);
+        g.restore();
+        const left = Math.max(0, 1 - this.guardT / GUARD_MAX);
+        g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(x - 9, y + 3, 18, 3); g.fillStyle = left < 0.25 ? '#ff9060' : '#9ad0ff'; g.fillRect(x - 8, y + 4, Math.round(16 * left), 1);
+      }
     }
     // postura rotta: scintille e barcollamento
     if (this.gBreakFx > 0 || (this.gBroken && this.stunT > 0)) {

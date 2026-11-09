@@ -11,7 +11,7 @@ const WORLD_BTN = [
   { id: 'dif', label: 'Dif', code: 'KeyU', dx: 165, dy: 55, r: 26, hold: 1 },
   { id: 'arc', label: 'Arco', code: 'KeyB', dx: 150, dy: 130, r: 26, hold: 1 },
   { id: 'sch', label: 'Sch', code: 'KeyV', dx: 80, dy: 150, r: 26 },
-  { id: 'usa', label: 'Usa', code: 'KeyE', dx: 228, dy: 115, r: 22 },
+  { id: 'usa', label: 'Interagisci', code: 'KeyE', dx: 232, dy: 112, r: 31 },
   { id: 'scat', label: 'Scat', code: 'KeyK', dx: 238, dy: 40, r: 19 },
   { id: 'fuo', label: 'Fuoco', code: 'KeyL', dx: 168, dy: 202, r: 19 },
   { id: 'ner', label: 'Nera', code: 'KeyH', dx: 92, dy: 218, r: 19 },
@@ -129,7 +129,9 @@ export class Touch {
       const on = pressed.has(b.id);
       g.fillStyle = on ? 'rgba(255,200,160,.6)' : 'rgba(20,16,32,.42)'; g.beginPath(); g.arc(b.x, b.y, b.R, 0, 6.283); g.fill();
       g.strokeStyle = on ? '#fff' : 'rgba(255,255,255,.4)'; g.lineWidth = 2; g.stroke();
-      g.fillStyle = '#fff'; g.font = `bold ${Math.max(9, Math.round(b.R * 0.5))}px sans-serif`; g.fillText(b.label, b.x, b.y);
+      g.fillStyle = '#fff'; let fs = Math.max(9, Math.round(b.R * 0.5)); g.font = `bold ${fs}px sans-serif`;
+      const mw = g.measureText(b.label).width, maxw = b.R * 1.75; if (mw > maxw) { fs = Math.max(7, Math.floor(fs * maxw / mw)); g.font = `bold ${fs}px sans-serif`; } // etichette lunghe: il testo si adatta al cerchio
+      g.fillText(b.label, b.x, b.y);
     }
   }
 }

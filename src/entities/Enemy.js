@@ -1,3 +1,4 @@
+import { findPath } from '../systems/Path.js';
 import { Entity } from './Entity.js';
 import { Projectile } from './Projectile.js';
 import { TRAITS, EXTRA_ATK } from './traits.js';
@@ -60,7 +61,7 @@ export class Enemy extends Entity {
     if (!p) return;
     if (this.dormant) { this.T?.wake?.(this, p, sc); return; }
     if (!this.def.boss && Math.abs(this.cx - p.cx) + Math.abs(this.cy - p.cy) > 560) return; // fuori portata: congelato
-    this.hurtT -= dt; this.cd -= dt; this.hpShow -= dt;
+    this.hurtT -= dt; this.cd -= dt; this.hpShow -= dt; this.vulnT = Math.max(0, (this.vulnT || 0) - dt);
     for (const j of this.q) { j.t -= dt; if (j.t <= 0) { j.done = true; j.fn(); } }
     if (this.q.length) this.q = this.q.filter((j) => !j.done);
     if (this.burnT > 0) {
@@ -138,10 +139,27 @@ export class Enemy extends Entity {
       if (d < pref * 0.6) { mx = -dir.x; my = -dir.y; } else if (d > pref * 1.2) { mx = dir.x; my = dir.y; } else { mx = -dir.y * 0.6; my = dir.x * 0.6; }
     } else if (d > (this.def.reach || 18) * 0.8) { mx = dir.x; my = dir.y; }
     const sp = this.speed;
+    // se un ostacolo (albero, roccia, acqua profonda...) blocca il cammino diretto, si segue un percorso a tile aggirandolo
+    if (this.path && this.path.length && (mx || my)) {
+      const wp = this.path[0], tx = wp.x * 16 + 8 - this.cx, ty = wp.y * 16 + 8 - this.cy, l = Math.hypot(tx, ty);
+      if (l < 5) this.path.shift(); else { mx = tx / l; my = ty / l; }
+      this.pathT = (this.pathT || 0) - dt; if (this.pathT <= 0) this.path = null;
+    }
     if (mx || my) {
+      const x0 = this.x, y0 = this.y;
       const r = this.move(mx * sp * dt, my * sp * dt);
       if (r.hitX && !r.hitY) this.move(0, Math.sign(my || dir.y || 1) * sp * dt);
       else if (r.hitY && !r.hitX) this.move(Math.sign(mx || dir.x || 1) * sp * dt, 0);
+      const moved = Math.hypot(this.x - x0, this.y - y0);
+      this.stuckT = moved < sp * dt * 0.3 ? (this.stuckT || 0) + dt : Math.max(0, (this.stuckT || 0) - dt * 2);
+      // oscillazione davanti a un ostacolo (scivola avanti e indietro lungo il muro): se la distanza dal bersaglio non migliora, serve un percorso
+      if (!this.path && (mx * dir.x + my * dir.y) > 0.3) { if (d < (this.bestD ?? 1e9) - 5) { this.bestD = d; this.progT = 0; } else if ((this.progT = (this.progT || 0) + dt) > 0.9) { this.progT = 0; this.bestD = d; this.stuckT = 1; } } else { this.progT = 0; this.bestD = d; }
+      if (this.stuckT > 0.35 && !this.path) {
+        this.stuckT = 0; const m = this.world.map;
+        this.path = findPath(m, Math.floor(this.cx / 16), Math.floor(this.cy / 16), Math.floor(p.cx / 16), Math.floor(p.cy / 16), this, 3500);
+        this.pathT = this.path ? Math.max(3, this.path.length * 16 / Math.max(10, sp) * 1.6 + 1) : 3; if (this.path && this.path.length) this.path.shift();
+        else { this.path = null; this.wiggle = 0.5; }
+      }
     }
     // scelta attacco
     if (this.cd <= 0) {
@@ -241,6 +259,7 @@ export class Enemy extends Entity {
   }
   hurt(dmg, src, o = {}) {
     if (this.dead || this.dormant) return;
+    if (this.vulnT > 0) dmg *= 1.6;   // finestra di vulnerabilità dopo gli attacchi più pesanti
     const sc = this.world.scene;
     if (this.T?.hurt) dmg = this.T.hurt(this, dmg, src, o, sc);
     if (dmg <= 0) return;
@@ -276,7 +295,7 @@ export class Enemy extends Entity {
         g.save(); g.translate(x, y - 4); g.rotate(Math.atan2(this.face.y, this.face.x)); g.fillRect(0, -4, 130, 8); g.restore();
       }
     }
-    const flash = this.hurtT > 0 || (this.state === 'wind' && Math.floor(this.t * 16) % 2 === 0);
+    const flash = this.hurtT > 0 || (this.state === 'wind' && Math.floor(this.t * 16) % 2 === 0) || (this.vulnT > 0 && Math.floor(this.t * 10) % 2 === 0);
     const alpha = this.tr.ghost ? 0.38 : this.tr.down > 0 ? 0.5 : null;
     const col = this.tr.stat ? ['#7a7a80', '#9a9aa0', '#5a5a60'] : this.def.col;
     drawMonster(g, x, y, this.def.shape, col, Math.floor(this.t * 6), { size: sz, flash, dir: this.dir, vis: this.def.vis, tr: this.tr, alpha, t: this.t });

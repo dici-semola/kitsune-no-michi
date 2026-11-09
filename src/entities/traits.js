@@ -313,6 +313,10 @@ export const TRAITS = {
   tempest: { // Ryūjin: tempesta marina
     phase(e, sc, ph) { if (ph >= 1) sc.atmo.lock('storm'); },
   },
+  kraken: { // Thalassarkhos: dopo pungiglione e vortice resta scoperto; nelle fasi avanzate l'arena freme
+    phase(e, sc, ph) { sc.shake(4); sc.audio.sfx('boss'); sc.floatText(e.cx, e.y - 14, ph >= 2 ? 'FURIA ABISSALE!' : 'Thalassarkhos si desta!', '#7affea'); },
+    after(e, sc, name) { if (name === 'tail' || name === 'whirl') { e.vulnT = 2.2; sc.floatText(e.cx, e.y - 12, 'SCOPERTO!', '#ffe060'); sc.audio.sfx('select'); } },
+  },
   glitchlord: { // KAMI-OS: nelle fasi avanzate disturba i controlli
     phase(e, sc, ph) { if (ph >= 1) sc.atmo.lock('timestorm'); },
   },
@@ -323,6 +327,18 @@ export const TRAITS = {
 // range = distanza massima per iniziare, wind = telegrafo (s), rec = recupero (s)
 const P = (e) => e.world.player;
 export const EXTRA_ATK = {
+  claw: { range: 80, wind: 0.65, rec: 0.7, run(e, sc) { // chele: due falci affiancate, leggibili dal telegrafo
+    const p = P(e), a = Math.atan2(p.cy - e.cy, p.cx - e.cx); for (const d of [-0.4, 0.4]) beam(sc, e.cx, e.cy, a + d, 84, 15, 0.35, e.atk * 1.2, '#7affea'); sc.shake(3); sc.audio.sfx('slash2');
+  } },
+  tail: { range: 230, wind: 1.0, rec: 1.7, run(e, sc) { // pungiglione: colpisce dove sei ADESSO (cerchio rosso) e poco dopo dove andrai
+    const p = P(e); boom(sc, p.cx, p.cy, 20, 0.95, e.atk * 1.7, '#ff4a7a'); boom(sc, p.cx + (p.face?.x || 0) * 34, p.cy + (p.face?.y || 0) * 34, 20, 1.45, e.atk * 1.5, '#ff4a7a'); sc.audio.sfx('shoot');
+  } },
+  tentacles: { range: 170, wind: 0.9, rec: 0.9, run(e, sc) { // sei tentacoli a raggiera, a ventaglio alternato
+    const a0 = Math.atan2(P(e).cy - e.cy, P(e).cx - e.cx) + R(0, 1); for (let i = 0; i < 6; i++) beam(sc, e.cx, e.cy, a0 + i * 1.0472, 140, 13, 0.6 + (i % 2) * 0.22, e.atk * 1.05, '#a07aff'); sc.shake(4);
+  } },
+  whirl: { range: 220, wind: 1.1, rec: 1.1, run(e, sc) { // vortice: ti trascina verso il boss, poi onda d'urto attorno a lui
+    const p = P(e), a = Math.atan2(e.cy - p.cy, e.cx - p.cx); sc.world.add(new Hazard({ kind: 'wind', x: p.cx, y: p.cy, ang: a, delay: 0, life: 1.7, r: 150 })); boom(sc, e.cx, e.cy, 66, 1.5, e.atk * 1.6, '#4aa0ff'); sc.audio.sfx('warp');
+  } },
   pull: { range: 120, wind: 0.5, rec: 0.6, run(e, sc) { // Mummia: bende che ti trascinano
     const p = P(e), a = Math.atan2(p.cy - e.cy, p.cx - e.cx);
     sc.world.add(new Projectile({ x: e.cx, y: e.cy - 4, vx: Math.cos(a) * 130, vy: Math.sin(a) * 130, r: 3, dmg: e.atk * 0.5, team: 'enemy', life: 1, kind: 'arrow', col: '#e8dab0', owner: e, fx: ['pull'] })); sc.audio.sfx('shoot');

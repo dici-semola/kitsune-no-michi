@@ -12,16 +12,33 @@ export class Chip {
     this.music = true; this.fx = true;
     this.want = null; this.cur = null; this.sw = null; this.step = 0; this.next = 0;
     this.waves = {}; this.last = {};
+    this.bindUnlock();
     try { const o = JSON.parse(localStorage.getItem('kitsune_audio') || '{}'); if (o.music === false) this.music = false; if (o.fx === false) this.fx = false; } catch { /* nessuna preferenza salvata */ }
   }
   save() { try { localStorage.setItem('kitsune_audio', JSON.stringify({ music: this.music, fx: this.fx })); } catch { /* ignora */ } }
 
+  // Sblocco dell'audio. I browser mobile (iOS Safari in particolare) accettano la riproduzione solo se resume()/start()
+  // partono dentro un gesto "vero" (touchend, click, keydown): per questo l'ascolto è registrato su più eventi e resta attivo
+  // finché il contesto non è davvero in esecuzione, e ricomincia ogni volta che il sistema lo sospende o interrompe.
+  bindUnlock() {
+    if (this.bound || typeof document === 'undefined') return;
+    this.bound = true;
+    const go = () => this.unlock();
+    for (const ev of ['touchstart', 'touchend', 'pointerdown', 'pointerup', 'click', 'keydown', 'mousedown']) document.addEventListener(ev, go, { passive: true, capture: true });
+    const wake = () => { if (document.visibilityState === 'visible') { this.next = 0; this.unlock(); } else this.pause(); };
+    document.addEventListener('visibilitychange', wake);
+    addEventListener('pageshow', wake); addEventListener('focus', wake); addEventListener('pagehide', () => this.pause());
+  }
+  // in background niente musica (e niente note accumulate): al ritorno il contesto riparte e la pianificazione si riallinea
+  pause() { try { if (this.ctx && this.ctx.state === 'running') this.ctx.suspend(); } catch { /* ignora */ } }
   unlock() {
     if (!this.AC) return;
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* non supportato */ } // iOS: suona anche con il tasto silenzioso
     if (!this.ctx) {
-      const c = (this.ctx = new this.AC());
+      const c = (this.ctx = new this.AC({ latencyHint: 'interactive' }));
+      c.onstatechange = () => { if (c.state !== 'running') this.next = 0; };
       this.master = c.createGain(); this.master.gain.value = 0.55; this.master.connect(c.destination);
-      this.mg = c.createGain(); this.mg.connect(this.master);
+      this.mg = c.createGain(); this.mg.gain.value = this.music ? 1 : 0; this.mg.connect(this.master);
       this.sg = c.createGain(); this.sg.gain.value = 0.9; this.sg.connect(this.master);
       const n = c.createBuffer(1, c.sampleRate, c.sampleRate), d = n.getChannelData(0);
       for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
@@ -32,7 +49,13 @@ export class Chip {
         this.waves[k] = c.createPeriodicWave(re, im);
       }
     }
-    if (this.ctx.state === 'suspended') this.ctx.resume();
+    const c = this.ctx;
+    if (c.state !== 'running' && !(typeof document !== 'undefined' && document.visibilityState === 'hidden')) {
+      const r = c.resume(); if (r && r.catch) r.catch(() => {});
+      if (!this.primed) { // buffer silenzioso: su iOS completa lo sblocco nello stesso gesto
+        try { const b = c.createBuffer(1, 1, 22050), s = c.createBufferSource(); s.buffer = b; s.connect(c.destination); s.start(0); this.primed = true; } catch { /* ignora */ }
+      }
+    }
   }
   get ready() { return !!this.ctx && this.ctx.state === 'running'; }
 
@@ -181,5 +204,8 @@ const SFX = {
   freeze: (s) => { s.tone(2000, 900, 0.3, 'sine', 0.1); s.hiss(0.2, 0.08, 6000); },
   splash: (s) => { s.hiss(0.12, 0.2, 2400, 0, 1200); s.tone(520, 180, 0.12, 'sine', 0.1); },
   rockbreak: (s) => { s.hiss(0.35, 0.25, 500, 0, 900); s.tone(160, 50, 0.3, 'saw', 0.16); s.tone(90, 40, 0.4, 'p25', 0.12, 0.05); },
+  crackle: (s) => { s.hiss(0.03, 0.05 + Math.random() * 0.04, 2500 + Math.random() * 2000, 0, 3500); if (Math.random() < 0.4) s.hiss(0.05, 0.04, 1800, 0.06, 2800); },
+  clap: (s) => { s.hiss(0.05, 0.06 + Math.random() * 0.05, 1400 + Math.random() * 2500, 0, 2500); },
+  cheer: (s) => { for (let i = 0; i < 6; i++) { s.hiss(0.7 + Math.random() * 0.5, 0.05, 0, i * 0.07, 600 + i * 220); s.tone(300 + i * 70 + Math.random() * 60, 480 + i * 60, 0.55, 'tri', 0.035, i * 0.05); } },
   explode: (s) => { s.hiss(0.4, 0.25, 200, 0, 500); s.tone(120, 40, 0.35, 'saw', 0.18); },
 };

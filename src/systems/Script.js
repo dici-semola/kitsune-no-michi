@@ -50,6 +50,9 @@ export function run(fx, ctx) {
       case 'tp': defer(() => ctx.scene.transition(a, b)); break;
       case 'dlg': defer(() => ctx.scene.startDialogue(a)); break;
       case 'credits': defer(() => ctx.scene.startCredits()); break;
+      case 'camprest': defer(() => ctx.scene.campRest()); break;
+      case 'campremove': defer(() => ctx.scene.campRemove(true)); break;
+      case 'finale': defer(() => ctx.scene.startFinale()); break;
       default: throw new Error('Effetto sconosciuto: ' + k);
     }
   }
