@@ -44,3 +44,35 @@ export function blockedAnchors(m) {
 // Prova di movimento reale: un rettangolo grande come il giocatore (10x8) attraversa il centro della cella.
 export function bodyFits(m, x, y, mover = null, w = 10, h = 8) { return !m.blockedRect({ x: x * TS + 3, y: y * TS + 6, w, h }, mover); }
 export { DEFS };
+
+// Riparazione di raggiungibilità (dopo le patch dell'editor): ogni forziere raggiungibile solo "dall'interno della roccia" riceve un sentiero stretto
+// (1 tile, scavato nella roccia fino alla più vicina zona percorribile; sull'acqua una banchina, sulla lava una passerella di pietra); i raccoglibili irraggiungibili vengono tolti. Esenti: i luoghi pensati
+// per essere raggiunti diversamente (isolotto del faro morto: a nuoto o col delfino).
+export function repairReach(m, { skip = ['faro_morto'] } = {}) {
+  const w = m.w, h = m.h, s = entryOf(m), res = { carved: [], removed: [] }, saveB = TileMap.ignoreBarriers;
+  TileMap.ignoreBarriers = true;   // le barriere di progressione sono volute: si ripara solo ciò che resta chiuso anche a barriere aperte
+  try { return repairInner(m, skip, w, h, s, res); } finally { TileMap.ignoreBarriers = saveB; }
+}
+function repairInner(m, skip, w, h, s, res) {
+  let seen = m.floodWalk(s.x, s.y, null);
+  const nearSeen = (x, y) => near(m, seen, x, y);
+  for (const p of m.props.slice()) {
+    if (p.type !== 'chest' && p.type !== 'item') continue;
+    if (!m.inb(p.x, p.y) || nearSeen(p.x, p.y) || skip.includes(p.id)) continue;
+    if (p.type === 'item') { m.props.splice(m.props.indexOf(p), 1); res.removed.push(p.id); continue; }
+    // ricerca in ampiezza (4 direzioni) attraverso roccia, alberi e terra; mai acqua, lava, città o ancore
+    const prev = new Int32Array(w * h).fill(-2), q = [p.y * w + p.x]; prev[q[0]] = -1; let hit = -1;
+    for (let qi = 0; qi < q.length && hit < 0 && qi < 250000; qi++) {
+      const i = q[qi], x = i % w, y = (i / w) | 0;
+      for (const [dx, dy] of NB) {
+        const nx = x + dx, ny = y + dy; if (nx < 2 || ny < 2 || nx >= w - 2 || ny >= h - 2) continue; const j = ny * w + nx; if (prev[j] !== -2) continue;
+        if (m.safe[j]) continue;
+        prev[j] = i; if (seen[j] && m.passable(nx, ny, null)) { hit = j; break; } q.push(j);
+      }
+    }
+    if (hit < 0) { res.removed.push('IMPOSSIBILE:' + p.id); continue; }
+    for (let i = prev[hit]; i >= 0; i = prev[i]) { const x = i % w, y = (i / w) | 0; m.setO(x, y, 0); const gd = DEFS[m.ground[i]]; if (gd.liquid) m.setG(x, y, m.ground[i] === 8 ? 6 : 63); else if (gd.solid) m.setG(x, y, 6); }   // lava -> pietra, acqua -> ponte (63 = banchina), roccia -> pietra
+    res.carved.push(p.id); seen = m.floodWalk(s.x, s.y, null);
+  }
+  return res;
+}

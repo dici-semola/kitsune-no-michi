@@ -52,5 +52,7 @@ Implementati e collegati: tutti i sistemi sopra, 19 mappe, 9 boss, 20 NPC, trama
 - **Accampamento**: Kit da Campo dall'inventario; falò, banco da lavoro, riposo, rimovibile e salvato.
 - **Regno sommerso di Thalassa** (portale vicino a Portomarea, serve la tuta) con il boss Thalassarkhos (fasi, finestre di vulnerabilità).
 - **Navigazione dei nemici**: percorso a tile (`src/systems/Path.js`) quando un ostacolo blocca la via; audit di raggiungibilità in `src/world/NavAudit.js`.
-- **Test**: `python3 tests/server.py`, poi aprire `http://127.0.0.1:8765/tests/index.html` (204 controlli). Non verificato: dispositivi mobili reali e prestazioni su telefono.
+- **Test**: `python3 tests/server.py`, poi aprire `http://127.0.0.1:8765/tests/index.html` (208 controlli). Non verificato: dispositivi mobili reali e prestazioni su telefono.
+- **Missioni extra post storia**: i territori si aprono solo dopo aver concluso la storia principale (flag `game_cleared`) e col livello indicato. In ognuno c'è un'arena con un guardiano (boss ricalibrato) e l'eremita affida una missione (8 creature, guardiano, ritorno) con ricompensa. Dati in fondo a `src/data/territori.js`.
+- **Forzieri sigillati**: i forzieri segreti dentro la roccia ricevono un sentiero scavato (`repairReach` in `src/world/NavAudit.js`, dopo le patch dell'editor); i raccoglibili irraggiungibili vengono tolti.
 - Il "10×" è ottenuto con territori collegati, non con una mappa unica lineare.

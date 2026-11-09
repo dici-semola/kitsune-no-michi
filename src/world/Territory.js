@@ -87,6 +87,7 @@ export function genTerritory(m, def) {
   const spots = [{ x: ex, y: ey - 2, r: 20 }], pick = (minD, tries = 800) => { for (let k = 0; k < tries; k++) { const x = 40 + Math.floor(rng() * (w - 80)), y = 40 + Math.floor(rng() * (h - 80)); if (!free(x, y) || !free(x + 6, y + 5) || !free(x - 6, y - 5) || spots.some((s) => Math.hypot(s.x - x, s.y - y) < Math.max(minD, s.r))) continue; spots.push({ x, y, r: 0 }); return { x, y }; } return null; };
   const kinds = ['camp', 'shrine', 'ruins', 'stones', 'tower', 'grotto', 'ruins', 'camp', 'shrine', 'stones', 'grotto', 'ruins', 'tower', 'shrine', 'camp', 'grotto', 'ruins', 'stones'];
   const places = []; for (const k of kinds) { const p = pick(46); if (p) places.push({ kind: k, ...p }); }
+  { const ap = pick(70, 2500); if (ap && D.boss) places.push({ kind: 'arena', ...ap }); }   // arena del guardiano (missione extra post storia)
   const chest = (n, x, y, tier) => m.props.push({ type: 'chest', id: `${m.id}_c${n}`, x, y, loot: [[tier > 1 ? 'pozione_vita_l' : 'pozione_vita_m', 1 + (n % 2)], [['ferro_grezzo', 'erba_medicinale', 'carbone', 'perla_grezza'][n % 4], 2 + (n % 3)]], gold: 120 + (n % 5) * 60 });
   const sign = (x, y, text) => m.props.push({ type: 'sign', sprite: 'sign', x, y, text });
   let n = 0;
@@ -107,6 +108,10 @@ export function genTerritory(m, def) {
     } else if (p.kind === 'shrine') { // santuario con l'aspetto del territorio
       clearRect(x - 6, y - 5, 13, 11, null); stampShrine(m, `${m.id}_${n}`, x, y, 'Santuario'); shrineSkin(m, x, y, D.shrine, rng);
       sign(x + 2, y + 4, 'Un santuario isolato. L\'aria qui è ferma, come se ascoltasse.'); poi(m, x, y, 'Santuario', 'shrine');
+    } else if (p.kind === 'arena') { // arena del guardiano: piazza lastricata con colonne, il boss dorme al centro
+      clearRect(x - 7, y - 6, 15, 13, T.COBBLE); for (let k = 0; k < 10; k++) { const ang = (k / 10) * 6.283; m.setO(x + Math.round(Math.cos(ang) * 6.5), y + Math.round(Math.sin(ang) * 5.5), k % 2 ? T.BROKENCOL : T.COLUMN); }
+      for (const [dx, dy] of [[0, 6], [1, 6], [-1, 6], [7, 0], [-7, 0], [0, -6]]) m.setO(x + dx, y + dy, 0);   // varchi in ogni direzione
+      m.boss = { id: D.boss.id, x, y }; m.anchors.boss = { x, y }; poi(m, x, y, 'Arena di ' + D.boss.n, 'boss'); sign(x + 2, y + 5, 'Qui veglia ' + D.boss.n + '. Chi lo sfida non torna indietro con facilità.');
     }
   }
   // strade: l'approdo si collega ai luoghi più vicini (catena del vicino più prossimo), come sentieri battuti
@@ -147,7 +152,7 @@ export function stampTerritoryGates(m) {
       if (d < bd) { bd = d; best = [x, y]; }
     }
     if (!best) continue; const [x, y] = best; used.push({ x, y }); m.setO(x, y, T.PORTAL);
-    m.portals.push({ x, y, to: id, anchor: 'entry', req: [['level', D.gate.level]], deny: `Il passaggio per ${D.n} è troppo pericoloso: serve almeno il livello ${D.gate.level}.` });
+    m.portals.push({ x, y, to: id, anchor: 'entry', req: [['flag', 'game_cleared'], ['level', D.gate.level]], deny: `Il passaggio per ${D.n} è chiuso: si apre solo dopo aver concluso la storia principale, e serve almeno il livello ${D.gate.level}.` });
     const nb = [[1, 0], [-1, 0], [0, 1], [0, -1]].find(([dx, dy]) => m.passable(x + dx, y + dy, null)) || [0, 1]; m.anchors['door_' + id] = { x: x + nb[0], y: y + nb[1] };
     poi(m, x, y, `Imbarco per ${D.n}`, 'stairs');
   }

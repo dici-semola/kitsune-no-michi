@@ -12,6 +12,7 @@ import '../data/thalassa.js';
 import { verticalize } from './Vertical.js';
 import { buildPalace, stampPalaceInAugusta } from './Palace.js';
 import { genTerritory, stampTerritoryGates } from './Territory.js';
+import { repairReach } from './NavAudit.js';
 import { civVariety, shrineSkins, interiorVariety } from './Variety.js';
 import '../data/territori.js';
 import { applyPatch, applyNpcPatches, resetNpcs, patchIdOf } from './MapPatch.js';
@@ -44,6 +45,7 @@ function build(id, patched = true) {
   else if (def.gen === 'territory' && GEN_OPTS.vertical) verticalize(m);
   if (def.type === 'interior' && GEN_OPTS.variety) interiorVariety(m, def);   // sviluppo verticale (solo grafica: stessa collisione)
   if (patched) { applyPatch(m, PATCHES[patchIdOf(m)]); applyNpcPatches(NPCS, PATCHES); } // modifiche del Map Editor (map-editor/data -> src/data/mapPatches.js)
+  if (def.gen === 'overworld') m.repair = repairReach(m);   // forzieri sigillati nella roccia: sentiero scavato; raccoglibili irraggiungibili: tolti
   return m;
 }
 

@@ -127,6 +127,7 @@ export class WorldScene {
   buildIndex(m) {
     const CH = 32, idxm = new Map(), slot = (x, y) => { const k = Math.floor(y / CH) * 1000 + Math.floor(x / CH); let c = idxm.get(k); if (!c) idxm.set(k, (c = { spawns: [], props: [], npcs: [] })); return c; };
     for (const s of m.spawns) slot(s.x, s.y).spawns.push(s);
+    if (m.boss) slot(m.boss.x, m.boss.y).boss = m.boss;   // il guardiano dorme nel suo chunk
     for (const d of m.props) { const t = this.freeTile(m, d.x, d.y); slot(t.x, t.y).props.push({ d, t }); }
     for (const [id, d] of Object.entries(NPCS)) if (d.at.map === this.mapId) { const t = this.resolveAt(d.at, m); slot(t.x, t.y).npcs.push({ id, d, t }); }
     this.CH = CH; this.chunkIndex = idxm; this.chunks = new Map(); this.chunkT = 0;
@@ -139,13 +140,14 @@ export class WorldScene {
       const key = cy * 1000 + cx;
       if (!this.chunks.has(key)) this.loadChunk(key, cx, cy);
     }
-    for (const [key, c] of this.chunks) if (Math.abs(c.cx - pcx) > 2 || Math.abs(c.cy - pcy) > 2) { for (const e of c.ents) e.dead = true; this.chunks.delete(key); }
+    for (const [key, c] of this.chunks) if (Math.abs(c.cx - pcx) > 2 || Math.abs(c.cy - pcy) > 2) { for (const e of c.ents) { e.dead = true; if (e === this.boss) this.boss = null; } this.chunks.delete(key); }
   }
   loadChunk(key, cx, cy) {
     const data = this.chunkIndex.get(key) || { spawns: [], props: [], npcs: [] }, ents = [], st = this.state, scale = (st.postgame ? 1.5 : 1) * (this.map.def.power || 1);
     for (const s of data.spawns) { if (this.campNear(s.x * TS, s.y * TS)) continue; const id = this.pickEnemy(s.table); if (id) { const e = this.world.add(new Enemy(id, s.x * TS + 3, s.y * TS + 6, { scale })); ents.push(e); for (let i = 1; i < (e.def.group || 1); i++) { const g2 = this.world.add(new Enemy(id, e.x + (i % 2 ? 10 : -10) * i, e.y + (i > 1 ? 8 : -4), { scale })); ents.push(g2); } } }
     for (const { d, t } of data.props) { if ((d.showIf && !check(d.showIf, st)) || (d.hideIf && check(d.hideIf, st))) continue; ents.push(this.world.add(new Prop(d, t.x * TS + 1, t.y * TS + 6))); }
     for (const { id, d, t } of data.npcs) { if ((d.if && !check(d.if, st)) || (d.hideIf && check(d.hideIf, st))) continue; ents.push(this.world.add(new NPC(id, d, t.x * TS + 3, t.y * TS + 6))); }
+    if (data.boss && !st.flags.has('boss:' + data.boss.id) && !this.boss) { const b = new Enemy(data.boss.id, data.boss.x * TS, data.boss.y * TS, { dormant: true }); ents.push(this.world.add(b)); this.boss = b; }
     this.chunks.set(key, { cx, cy, ents });
   }
   // ---------------------------------------------------------------- notte, creature notturne ed eventi casuali

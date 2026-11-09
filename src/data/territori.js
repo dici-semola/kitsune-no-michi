@@ -5,6 +5,8 @@
 import { MAPS } from './world.js';
 import { NPCS } from './npcs.js';
 import { DIALOGUES } from './dialogues.js';
+import { ENEMIES } from './enemies.js';
+import { QUESTS } from './quests.js';
 
 export const TERRITORI = {
   yggwen: { n: 'Foresta Millenaria di Yggwen', biomes: ['meadow', 'forest', 'enchanted', 'ancient'], power: 1.15, gate: { town: 'silvaneth', level: 8 }, sea: 'ring', lore: 'Gli alberi di Yggwen erano già vecchi quando nacque il primo impero. Chi si perde fra i loro tronchi ritrova sempre la via... ma non sempre il giorno in cui è entrato.', shrine: 'ivy', hermit: 'Eremita Quercio' },
@@ -24,3 +26,49 @@ for (const [id, t] of Object.entries(TERRITORI)) {
   NPCS['eremita_' + id] = { n: t.hermit, look: { top: TOP[k], bottom: BOT[k], hair: HAIR[k], skin: SKIN[k], sash: '#8a6a2a', straw: k % 2, long: 1, robe: 1, staff: k % 3 === 0 ? 1 : 0, cape: k % 4 === 1 ? 1 : 0, capeCol: BOT[k] }, quirk: ['bubble', 'pole'], shouts: ['Che i venti ti siano amici.', 'Hai trovato il santuario?'], at: { map: id, anchor: 'poi_camp', dx: 1, dy: 1 }, dialogue: 'eremita_' + id };
   DIALOGUES['eremita_' + id] = { start: [{ go: 'a' }], nodes: { a: { s: t.hermit, t: [t.lore, 'Cerca il santuario: ti ristora e fissa il tuo punto di rinascita. E diffida delle rovine isolate: a volte nascondono tesori, a volte i loro guardiani.'] } } };
 }
+
+// ---- MISSIONI EXTRA POST STORIA ----------------------------------------------------------------------------------
+// I territori si aprono solo dopo aver concluso la storia principale (flag game_cleared) e col livello indicato.
+// In ognuno veglia un guardiano (un boss già esistente ricalibrato: nuovo id, quindi combattibile anche se l'originale è stato sconfitto)
+// e l'eremita affida una missione: sconfiggere creature, abbattere il guardiano, tornare a riferire.
+const GUARDIANI = {
+  yggwen: ['cavaliere_nero', 'Custode di Corteccia'],
+  frontiera: ['colosso_rovine', 'Colosso della Frontiera'],
+  nebbiaria: ['re_non_morto', 'Re delle Paludi'],
+  vette: ['oni_kurogane', "Gigante dell'Altopiano"],
+  ankhar: ['faraone_sepolto', 'Sovrano delle Dune'],
+  mille_isole: ['drago_giada', 'Drago delle Maree'],
+  nivalis: ['titano_ghiaccio', 'Gigante del Gelo Eterno'],
+  lunaria: ['sfinge_cremisi', 'Sfinge Lunare'],
+  ashkar: ['drago_ignis', 'Signore della Forgia'],
+};
+Object.entries(TERRITORI).forEach(([id, t], k) => {
+  const [base, nome] = GUARDIANI[id], b = ENEMIES[base], gid = 'guardiano_' + id;
+  ENEMIES[gid] = { ...b, n: nome, hp: Math.round(b.hp * 1.25), atk: Math.round(b.atk * (1.1 + k * 0.02)), intro: undefined, outro: undefined, boss: true };
+  t.boss = { id: gid, n: nome };
+  const Q = 'x_' + id, name = t.hermit;
+  QUESTS[Q] = {
+    title: 'Oltre il mare: ' + t.n, act: 'Missione extra · ' + t.n, main: false, giver: 'eremita_' + id,
+    desc: name + ' ti chiede di liberare ' + t.n + ' dal guardiano che la tormenta.',
+    obj: [
+      { t: 'kill', enemy: 'any', n: 8, text: 'Sconfiggi 8 creature in ' + t.n },
+      { t: 'boss', boss: gid, text: 'Sconfiggi ' + nome + ' nella sua arena' },
+      { t: 'talk', npc: 'eremita_' + id, text: 'Torna da ' + name },
+    ],
+    reward: { gold: 600 + k * 150, maxHp: 10, items: [['pozione_vita_l', 3 + k]], flags: ['extra_' + id] },
+  };
+  DIALOGUES['eremita_' + id] = {
+    start: [
+      { if: [['quest', Q, 'active']], go: 'wait' },
+      { if: [['flag', 'extra_' + id]], go: 'fatto' },
+      { if: [['flag', 'game_cleared']], go: 'offerta' },
+      { go: 'a' },
+    ],
+    nodes: {
+      a: { s: name, t: [t.lore, 'Cerca il santuario: ti ristora e fissa il tuo punto di rinascita. E diffida delle rovine isolate: a volte nascondono tesori, a volte i loro guardiani.'] },
+      offerta: { s: name, t: [t.lore, 'Hai ricucito il Filo del Tempo, lo so. Ma qui ' + nome + ' non lascia dormire nessuno. Aiutaci: fai pulizia, poi cerca la sua arena e abbattilo. Ti ricompenserò.'], fx: [['quest', Q]] },
+      wait: { s: name, t: ['Il guardiano veglia nella sua arena, lungo i sentieri battuti. Ripulisci prima la zona dalle creature, poi affrontalo. Torna da me a cose fatte.'] },
+      fatto: { s: name, t: ['Il territorio respira di nuovo, grazie a te. Il santuario resta tuo, {name}: torna quando vuoi.'] },
+    },
+  };
+});
